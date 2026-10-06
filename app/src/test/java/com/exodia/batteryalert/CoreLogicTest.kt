@@ -4,6 +4,7 @@ import com.exodia.batteryalert.core.alert.AlertEngine
 import com.exodia.batteryalert.core.analysis.*
 import com.exodia.batteryalert.core.config.BatteryProfiles
 import com.exodia.batteryalert.core.model.*
+import com.exodia.batteryalert.ui.monitor.HeroNumberLayout
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -36,6 +37,26 @@ class CoreLogicTest {
     }
     @Test fun flightClockStartsOnlyWithMotorLoad() { val clock = FlightClock(); assertEquals(0, clock.onFrame(0, 4f)); assertEquals(0, clock.onFrame(1_000, 5f)); assertEquals(10, clock.onFrame(11_000, 5f)); clock.reset(); assertEquals(0, clock.elapsedSec(12_000)) }
     @Test fun ringZonesFollowRequiredReturnPower() { val zones = ringZones(33.4f); assertEquals(20f, zones.yellowStart ?: 0f, .01f); assertEquals(33.4f, zones.yellowEnd ?: 0f, .01f); assertNull(ringZones(null).tickPercent) }
+    @Test fun ringGeometryUsesOneClockwiseScale() {
+        assertEquals(RingGeometry.startAngle, RingGeometry.angleFor(0f), .001f)
+        assertEquals(RingGeometry.startAngle + 270f, RingGeometry.angleFor(100f), .001f)
+        assertEquals(RingGeometry.startAngle + 54f, RingGeometry.angleFor(20f), .001f)
+        assertEquals(135f, RingGeometry.fillSweep(50f), .001f)
+        assertEquals(0f, RingGeometry.fillSweep(0f), .001f)
+        assertEquals(270f, RingGeometry.fillSweep(100f), .001f)
+    }
+    @Test fun ringZonesStayAtTheLowEnd() {
+        val normal = ringZones(33.4f); assertEquals(0f, normal.redStart, .001f); assertEquals(20f, normal.redEnd, .001f); assertEquals(normal.redEnd, normal.yellowStart ?: 0f, .001f)
+        val belowWarning = ringZones(15f); assertNull(belowWarning.yellowStart); assertNull(belowWarning.yellowEnd); assertEquals(15f, belowWarning.tickPercent ?: 0f, .001f)
+        val unknown = ringZones(null); assertEquals(0f, unknown.redStart, .001f); assertEquals(20f, unknown.redEnd, .001f); assertNull(unknown.tickPercent)
+    }
+    @Test fun heroNumberFitsEveryTargetRingDiameter() {
+        listOf(240f, 300f, 360f).forEach { diameter ->
+            val font = HeroNumberLayout.fontSizeSp(diameter, 2f)
+            assertTrue(HeroNumberLayout.widestReadoutWidthDp(font) <= HeroNumberLayout.innerDiameterDp(diameter) * .70f)
+            assertTrue(font <= 160f)
+        }
+    }
     @Test fun alertEnginePrioritisesEmergency() {
         val analysis = BatteryAnalysis(14, List(14) { 3.39f }, List(14) { 3.5f }, 3.39f, 3.39f, 3.39f, 0f, 47f, 100f, 20, null, null, null, true, 0)
         val state = AlertEngine().evaluate(analysis, null, ConnectionState.Connected, 0)

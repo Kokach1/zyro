@@ -1,8 +1,8 @@
 # PROGRESS
 
 ## Current status
-- Last updated: 2026-10-06, by Codex
-- Build: `assembleDebug` pass; Tests: 10 passed / 0 failed
+- Last updated: 2026-10-07, by Codex
+- Build: `assembleDebug` pass; Tests: 13 passed / 0 failed
 - Overall: Day 1 implementation is buildable: simulator, pure analysis/alert logic, single monitor UI, and handoff docs are present.
 
 ## Step checklist (from build_order)
@@ -24,6 +24,7 @@
 ## Known issues / unfinished
 - Inter font files are not bundled; the app deliberately falls back to `FontFamily.SansSerif`.
 - Build verification requires Android Studio's JDK and Android SDK to be available in the environment.
+- The `CRITICAL_RTL` simulator scenario issue remains open.
 
 ## Key decisions and assumptions
 - The supplied pasted JSON is copied unchanged to `docs/SPEC.json` as the source of truth - 2026-10-06.
@@ -42,3 +43,4 @@
 ## Session log
 - 2026-10-06 Codex: initialized required handoff files and began a new Android project.
 - 2026-10-06 Codex: implemented Day 1 project, then verified `assembleDebug` and `testDebugUnitTest` (10/10 passing).
+- 2026-10-07 Codex: made cell tiles static; constrained the hero percent using `HeroNumberLayout`; corrected ring-zone geometry with a single clockwise scale. `assembleDebug` and 13 unit tests pass. CRITICAL_RTL scenario issue remains open.
