@@ -1,0 +1,907 @@
+{
+  "prompt_name": "Exodia Drone Battery Alert System - Day 1 Build (v4)",
+  "how_to_use": "You are a senior Android engineer. Build exactly what is specified below, in a new Android Studio project, and nothing more. Follow every section. Where a value is marked CONFIGURABLE, put it in one config file, never hard-code it in logic. When done, print the final_checklist_to_report with each item marked pass or fail. Do not invent features, extra screens, extra text or extra data on the UI. FIRST ACTION of every new project: save this entire JSON, unchanged, as docs/SPEC.json, then create docs/PROGRESS.md and AGENTS.md exactly as described in session_handoff. Update docs/PROGRESS.md at the end of every work session and whenever you are about to run out of budget.",
+  "role": "Senior Android engineer who also cares about product design. Write clean, small, well-named Kotlin. Prefer clarity over cleverness.",
+  "project": {
+    "name": "Battery Alert",
+    "purpose": "A battery monitoring and alert app for an agricultural spraying drone. It runs on the Skydroid G20 Smart Controller (7-inch landscape touch screen, 1920x1080, Android 13). It reads drone telemetry, works out battery health and whether the drone can still fly home, and warns the pilot clearly. The pilot is outdoors in sunlight, often wearing gloves, glancing at the screen for one second at a time.",
+    "client_document": "Functional Requirements Document (FRD): Battery Alert System for Agricultural Drone. Target controller: Skydroid G20 (Android 13). Receiver and telemetry link: Skydroid GR01.",
+    "this_build": "DAY 1 ONLY: project setup, the single battery-monitor screen, the alert logic, and a fake data simulator. There is NO real drone connection in Day 1. Real MAVLink transport, foreground service, text-to-speech, siren audio, vibration, blackbox logging and settings screen are Day 2. Day 1 must leave clean plug-in points for them (see transport_layer, alert_engine.output_ports and day2_extension_points). The project must be resumable by a different AI coding tool at any point (see session_handoff)."
+  },
+  "tech_stack": {
+    "language": "Kotlin 2.x, JVM target 17",
+    "build": "Gradle Kotlin DSL with a version catalog (libs.versions.toml)",
+    "min_sdk": 26,
+    "target_sdk": 33,
+    "compile_sdk": 34,
+    "ui": "Jetpack Compose with a fully CUSTOM theme. Use androidx.compose.foundation and a few Material3 primitives only where useful (for example ModalBottomSheet). Do NOT use default Material3 colours, shapes or typography anywhere visible. Do not use the default Material3 look.",
+    "architecture": "MVVM with unidirectional data flow. One ViewModel exposes one StateFlow<BatteryUiState>.",
+    "async": "Kotlin Coroutines and Flow",
+    "dependency_injection": "None. Use simple manual wiring in an AppContainer object. Do not add Hilt or Koin.",
+    "testing": "JUnit4 for unit tests of the pure Kotlin logic. No instrumented tests in Day 1.",
+    "dependencies_allowed": [
+      "androidx.core:core-ktx",
+      "androidx.activity:activity-compose",
+      "androidx.lifecycle:lifecycle-viewmodel-compose",
+      "androidx.lifecycle:lifecycle-runtime-compose",
+      "androidx.compose BOM (ui, foundation, animation, material3 only for bottom sheet, ui-tooling-preview)",
+      "kotlinx-coroutines-android",
+      "junit:junit"
+    ],
+    "dependencies_forbidden": [
+      "any MAVLink library in Day 1 (it is added in Day 2)",
+      "usb-serial library in Day 1",
+      "Hilt, Dagger, Koin",
+      "Room or any database",
+      "Retrofit or any network library",
+      "any analytics or crash SDK"
+    ],
+    "fonts": "Bundle the Inter font family (Regular 400, Medium 500, SemiBold 600, Bold 700) in res/font from Google Fonts. If a font file is missing, fall back to FontFamily.SansSerif and mention it in the final notes. Turn on tabular (monospaced) digits for all changing numbers using fontFeatureSettings = \"tnum\" so digits never jitter."
+  },
+  "package_and_modules": {
+    "application_id": "com.exodia.batteryalert",
+    "gradle_modules": "Single module :app in Day 1, but strictly separated by package so it can be split later.",
+    "package_layout": {
+      "com.exodia.batteryalert": "App entry: BatteryAlertApp (Application), MainActivity, AppContainer",
+      "com.exodia.batteryalert.core.model": "Plain data classes and enums (see domain_model). No Android imports.",
+      "com.exodia.batteryalert.core.transport": "TelemetryTransport interface, ConnectionState, SimulatorTransport. NO other transport in Day 1.",
+      "com.exodia.batteryalert.core.telemetry": "TelemetryRepository: collects frames from the active transport, keeps latest state, detects link loss.",
+      "com.exodia.batteryalert.core.analysis": "BatteryAnalyzer, RtlCalculator, ChemistryDetector, GeoMath. Pure Kotlin. No Android imports.",
+      "com.exodia.batteryalert.core.alert": "AlertEngine (state machine), AlertLevel, AlertOutput interface, NoOpAlertOutput.",
+      "com.exodia.batteryalert.core.config": "AppConfig: every threshold and tunable constant in one place.",
+      "com.exodia.batteryalert.ui.theme": "Colors, Typography, Spacing, Shapes, Motion.",
+      "com.exodia.batteryalert.ui.monitor": "BatteryMonitorScreen, BatteryMonitorViewModel, BatteryUiState and the composables listed in section 9.",
+      "com.exodia.batteryalert.ui.debug": "SimulatorControlSheet (only reachable in simulator mode)."
+    },
+    "rule": "core.* packages must not import anything from ui.*. ui.* may depend on core.* only through the ViewModel. core.analysis and core.alert must be pure Kotlin so they are unit-testable without Android."
+  },
+  "manifest_and_app_settings": {
+    "orientation": "Landscape, locked: android:screenOrientation=\"sensorLandscape\". The G20 is a landscape device.",
+    "keep_screen_on": "Set window flag FLAG_KEEP_SCREEN_ON in MainActivity while the app is visible.",
+    "immersive": "Hide system bars (immersive sticky) using WindowInsetsControllerCompat so the full 1920x1080 is the app.",
+    "edge_to_edge": true,
+    "config_changes": "Declare orientation|screenSize|keyboardHidden so the activity is not recreated.",
+    "permissions_day1": "None required. Do NOT add USB, notification, foreground-service or location permissions in Day 1. Add a commented TODO block in the manifest listing the Day 2 permissions: POST_NOTIFICATIONS, FOREGROUND_SERVICE, FOREGROUND_SERVICE_CONNECTED_DEVICE, VIBRATE, and uses-feature android.hardware.usb.host (required=false).",
+    "app_name": "Battery Alert",
+    "icon": "Simple adaptive icon: dark navy background, a white battery outline with a small bolt. Vector only."
+  },
+  "domain_primer": {
+    "note": "Short background so you understand the data. Do not put this text in the app.",
+    "telemetry_messages": {
+      "BATTERY_STATUS": "Per-cell voltages (millivolts, cells 1-10 in voltages, cells 11-14 in voltages_ext; unused cells are 65535), current in centi-amps, consumed mAh, temperature in centi-degrees C, remaining percent (-1 if unknown).",
+      "SYS_STATUS": "Total battery voltage (mV), current (cA), remaining percent. Fallback source when BATTERY_STATUS is missing.",
+      "GLOBAL_POSITION_INT": "Latitude and longitude in degrees x 1e7, altitude in mm, height above home in mm, ground speed in cm/s. It does NOT contain distance to home; distance is computed from home position."
+    },
+    "battery_terms": "6S/12S/14S is the number of cells in series. Voltage sag is the temporary voltage drop under heavy current: V_rest = V_measured + I x Ri. Cell delta = highest cell minus lowest cell. RTL = Return To Launch."
+  },
+  "domain_model": {
+    "file": "core/model/Models.kt",
+    "types": {
+      "BatteryFrame": "Unit-converted snapshot from one telemetry update. Fields: timestampMs: Long, cellVoltagesV: List<Float> (volts, only valid cells, empty if unknown), packVoltageV: Float, currentA: Float (amps, 0 if unknown), consumedMah: Float? , temperatureC: Float? , remainingPercent: Int? (null if unknown).",
+      "PositionFrame": "timestampMs: Long, latDeg: Double, lonDeg: Double, altitudeM: Float, relativeAltitudeM: Float, groundSpeedMps: Float.",
+      "TelemetryFrame": "sealed interface with two cases: Battery(BatteryFrame) and Position(PositionFrame). Transports emit these only. Raw MAVLink types must never leave the transport layer.",
+      "ConnectionState": "sealed interface: Disconnected, Connecting, Connected, LinkLost(sinceMs: Long), Error(message: String).",
+      "BatteryChemistry": "enum: LI_ION, LIPO, LIHV, UNKNOWN. Day 1 default is LI_ION (DJI Agras-class smart batteries are described as Li-ion; see battery_profiles).",
+      "PackConfig": "cellCount: Int, chemistry: BatteryChemistry, detected: Boolean.",
+      "AlertLevel": "enum ordered by severity: NONE, NOTICE, WARNING, CRITICAL, EMERGENCY. Plus a separate boolean flag cellFault (not part of the ordering, it can coexist).",
+      "AlertReason": "enum: LOW_PERCENT_30, LOW_PERCENT_20, LOW_CELL_VOLTAGE_WARN, BELOW_DYNAMIC_RTL, LOW_CELL_VOLTAGE_CRITICAL, LOW_CELL_VOLTAGE_EMERGENCY, RAPID_SAG, CELL_IMBALANCE, LINK_LOST.",
+      "ActiveAlert": "level: AlertLevel, reasons: List<AlertReason>, title: String, message: String, sinceMs: Long, dismissible: Boolean.",
+      "BatteryAnalysis": "cellCount: Int, cellVoltagesV: List<Float> (measured), restCellVoltagesV: List<Float> (sag compensated), minCellV: Float, maxCellV: Float, avgCellV: Float, cellDeltaV: Float, packVoltageV: Float, currentA: Float, remainingPercent: Int, consumptionMahPerMin: Float?, minutesRemaining: Float?, temperatureC: Float?, isSagRapid: Boolean, flightElapsedSec: Long.",
+      "RtlAssessment": "distanceToHomeM: Float?, requiredPercent: Float?, marginPercent: Float, belowRequired: Boolean, returnEtaSec: Int? (estimated seconds to fly back to the home point), returnEtaExceedsTimeLeft: Boolean. Fields are null or false when position, home or rate is unknown."
+    }
+  },
+  "config": {
+    "file": "core/config/AppConfig.kt",
+    "rule": "Every number below lives here as a named constant or a data class with defaults. No magic numbers elsewhere. All are CONFIGURABLE (Day 2 will expose some in a settings screen).",
+    "values": {
+      "notice_percent": 30,
+      "warning_percent": 20,
+      "warning_cell_voltage_v": 3.65,
+      "critical_cell_voltage_v": 3.5,
+      "emergency_cell_voltage_v": 3.4,
+      "cell_delta_fault_v": 0.08,
+      "rtl_safety_margin_percent": 15,
+      "cruising_speed_mps_default": 5.0,
+      "internal_resistance_ohm_per_cell_default": 0.002,
+      "consumption_window_seconds": 30,
+      "rapid_sag_rule": "Cell voltage (average) drops more than 0.15 V within 2 seconds while current changes by less than 10 percent. Treat the numbers as constants: rapid_sag_drop_v = 0.15, rapid_sag_window_s = 2, rapid_sag_current_tolerance = 0.10. This rule is a proposal, not defined in the FRD.",
+      "link_lost_timeout_ms": 3000,
+      "alert_hysteresis_percent": 3,
+      "alert_hysteresis_cell_voltage_v": 0.03,
+      "alert_debounce_ms": 1500,
+      "tts_interval_seconds": 60,
+      "spray_interlock_percent": 20,
+      "flight_timer_start_rule": "Flight time starts at the first frame where current >= 5 A (motors drawing power) and keeps running until the transport stops or Reset is pressed. It is a proxy; Day 2 should use the arm state from HEARTBEAT. Add a comment saying so.",
+      "return_eta_speed_rule": "Return ETA = distanceToHomeM / cruisingSpeedMps (same cruising speed as the RTL formula, so the two numbers agree). Round up to the next 5 seconds.",
+      "return_eta_margin_flag": "returnEtaExceedsTimeLeft is true when returnEtaSec/60 > minutesRemaining * 0.8, meaning the return is using most of the flight time left.",
+      "battery_profile_default": "AGRAS_T55_DB1580 (see battery_profiles). Capacity, cell count, chemistry and nominal voltage come from the active BatteryProfile, never from loose constants.",
+      "alert_note": "Alert thresholds in this config are the FRD values; consumption defaults assume the active BatteryProfile."
+    },
+    "note_on_defaults": "Internal resistance (0.002 ohm per cell), cruising speed, the simulation currents and the rapid-sag rule are NOT from the FRD or from DJI. They are suggested defaults. Add a code comment above each: 'SUGGESTED DEFAULT - not from FRD, confirm with Exodia'. Battery profile values are Agras-class approximations (see battery_profiles) and must carry the comment 'AGRAS-CLASS APPROXIMATION - exact model unconfirmed'."
+  },
+  "transport_layer": {
+    "goal": "The app must not know where telemetry comes from. Day 1 uses a simulator. Day 2 adds real MAVLink over UDP, serial or USB-serial without changing the analyzer, the alert engine or the UI.",
+    "file": "core/transport/TelemetryTransport.kt",
+    "interface": {
+      "name": "TelemetryTransport",
+      "members": [
+        "val id: String  (for example \"simulator\", later \"udp\", \"serial\", \"usb\")",
+        "val displayName: String",
+        "val connectionState: StateFlow<ConnectionState>",
+        "val frames: Flow<TelemetryFrame>  (cold or hot SharedFlow, emits already unit-converted frames)",
+        "suspend fun start()  (opens the connection and begins emitting)",
+        "suspend fun stop()  (closes cleanly, idempotent)"
+      ],
+      "rules": [
+        "Transports emit only TelemetryFrame values from core.model. Raw bytes and MAVLink classes stay inside the transport.",
+        "A transport must convert units itself: mV to V, cA to A, degE7 to degrees, mm to m, cm/s to m/s, cdegC to C. Invalid values (65535 for a cell, -1 for percent) become empty list or null.",
+        "No transport may touch the UI, the analyzer or the alert engine."
+      ]
+    },
+    "factory": {
+      "name": "TransportFactory",
+      "behavior": "Day 1: a single function createDefaultTransport(): TelemetryTransport returning SimulatorTransport. Leave a clearly commented block showing where UdpTransport, SerialFileTransport, UsbSerialTransport will be registered in Day 2. Selection must be driven by AppConfig.transportId so Day 2 changes one value."
+    },
+    "day2_stubs": "Create NO real transport classes in Day 1 except the simulator. Do not create empty stub files that pretend to work. Instead add one markdown file docs/TRANSPORTS_DAY2.md describing the three real paths: UDP to the Skydroid link (try 192.168.144.101 ports 14550 and 14551), internal serial /dev/ttyS1 at 921600 (may be blocked for normal apps), USB serial adapter via usb-serial-for-android. State plainly that which of these works on the G20 is unverified."
+  },
+  "simulator": {
+    "file": "core/transport/SimulatorTransport.kt",
+    "purpose": "Generate a believable fake flight so every alert level can be demonstrated without hardware. This is what the pilot, and the Exodia reviewers, will see in Day 1. The simulated pack follows the active BatteryProfile (default AGRAS_T55_DB1580: 14S, 30000 mAh).",
+    "emission": "Emit a BatteryFrame and a PositionFrame together every 200 ms (5 Hz). Use a coroutine on Dispatchers.Default. Time source must be injectable (a Clock interface) so tests can control time.",
+    "default_pack": "Use the default battery profile AGRAS_T55_DB1580 (14S, 30000 mAh, nominal 52 V, see battery_profiles). Cell voltage at 100 percent is 4.18 V, empty is 3.30 V (pack about 58.5 V full, 52 V nominal, 46.2 V empty). Use a smooth non-linear Li-ion-like discharge curve (flat in the middle, steeper at both ends). Implement as a small piecewise-linear lookup table (at least 10 points) in code.",
+    "model": [
+      "Per-cell voltage = openCircuitVoltage(stateOfCharge) - current * internalResistance + small per-cell offsets + tiny noise (+/- 3 mV random each tick).",
+      "Per-cell offsets: cell 1 to 14 differ by a fixed spread of up to 25 mV so the cell bars are never identical.",
+      "Current (SIMULATION VALUES, not from DJI data): hovering 90 A, spraying 140 A, return flight 110 A, with smooth ramps (no instant jumps). These give roughly 15 to 20 minutes of flight on 30000 mAh, similar to a real agri drone.",
+      "consumedMah integrates current over time. remainingPercent = 100 - consumed / capacity * 100, clamped 0..100.",
+      "Temperature rises slowly from 28 C to about 48 C over the run, a little faster at high current.",
+      "Position: a straight-line outbound flight from a fixed home point at the simulator's ground speed, then optionally returns. Use home = (10.0159, 76.3419) (Kochi, any fixed value is fine). Ground speed 5 m/s. Heading is not needed.",
+      "Capacity, cell count and chemistry come from the active BatteryProfile. Add a 'Battery' selector (chips for each profile) to the simulator sheet so the user can see the UI at 14S/20 Ah, 14S/30 Ah and 14S/41 Ah. Switching resets the simulation.",
+      "Expected simulator numbers at 100 percent: pack about 58.5 V, 14 cells near 4.18 V; at 50 percent about 52 V."
+    ],
+    "scenarios": {
+      "note": "Selectable at runtime from the simulator sheet (see ui_ux.simulator_sheet_ui). Each scenario is a named preset that jumps the simulation to a state and then keeps running forward.",
+      "list": [
+        {
+          "id": "NORMAL_FLIGHT",
+          "label": "Normal flight",
+          "description": "Starts at 100 percent, flies outbound, runs through the whole discharge at real speed multiplier x1."
+        },
+        {
+          "id": "FAST_DISCHARGE",
+          "label": "Fast discharge",
+          "description": "Same flight but time speed x20 so Notice, Warning, Critical and Emergency can be seen in about one minute."
+        },
+        {
+          "id": "NOTICE_30",
+          "label": "30 percent",
+          "description": "Jump to 30 percent remaining."
+        },
+        {
+          "id": "WARNING_20",
+          "label": "20 percent",
+          "description": "Jump to 20 percent remaining."
+        },
+        {
+          "id": "CRITICAL_RTL",
+          "label": "Dynamic RTL",
+          "description": "Drone 900 m from home, 30 percent remaining, 110 A return current: required percent = (900/5) x 0.102 + 15 = about 33 percent, which exceeds the 30 percent remaining, so the dynamic RTL alert fires."
+        },
+        {
+          "id": "LOW_CELL",
+          "label": "Low cell",
+          "description": "One cell sagging to 3.48 V while the other 13 stay near 3.7 V."
+        },
+        {
+          "id": "EMERGENCY",
+          "label": "Emergency",
+          "description": "A cell at 3.38 V and rapid sag active."
+        },
+        {
+          "id": "CELL_IMBALANCE",
+          "label": "Cell fault",
+          "description": "Cell delta of 0.11 V between highest and lowest cell (14 cells)."
+        },
+        {
+          "id": "LINK_LOST",
+          "label": "Link lost",
+          "description": "Stop emitting frames for 8 seconds, then resume."
+        }
+      ]
+    },
+    "controls": [
+      "start()",
+      "stop()",
+      "setScenario(id)",
+      "setSpeedMultiplier(1, 5, 20)",
+      "pause() and resume()",
+      "resetToFull()"
+    ],
+    "connection_state": "Connecting for 800 ms on start (shows the connecting state on screen), then Connected. LINK_LOST scenario sets LinkLost."
+  },
+  "analysis_logic": {
+    "note": "Pure Kotlin classes in core/analysis. Fully unit tested (see unit_tests_required).",
+    "chemistry_detector": {
+      "file": "ChemistryDetector.kt",
+      "rule": "cellCount = number of valid entries in cellVoltagesV. If empty, estimate cellCount = round(packVoltageV / 3.7) clamped 3..14 and mark detected=false. Chemistry defaults to the active battery profile's chemistry (LI_ION for the Agras-class default). Must be decided once from the first stable readings (average of the first 5 frames with current below 5 A) and then locked until the link reconnects or the user resets. FRD FR-1.3: auto-detect cell configuration (6S, 12S, 14S)."
+    },
+    "battery_analyzer": {
+      "file": "BatteryAnalyzer.kt",
+      "function": "analyze(frame: BatteryFrame, pack: PackConfig, history: ConsumptionHistory, config: AppConfig): BatteryAnalysis",
+      "steps": [
+        "1. Per-cell measured voltages from the frame. If only pack voltage is known, spread evenly: pack / cellCount.",
+        "2. Sag compensation (FR-2.1): restCellV = measuredCellV + currentA * internalResistanceOhmPerCell. Use the per-CELL resistance because the voltage is per cell. Show rest voltage to the alert engine and use it for the percent fallback only; the UI shows measured voltages.",
+        "3. Cell delta (FR-2.2): deltaV = maxCellV - minCellV using MEASURED cells.",
+        "4. Consumption rate (FR-2.3): keep a ring buffer of (timestamp, consumedMah) for the last consumption_window_seconds. rate mAh/min = (newest - oldest consumed) / minutes. Need at least 10 seconds of data, otherwise null.",
+        "5. Time remaining: remainingMah = capacity * remainingPercent / 100. minutesRemaining = remainingMah / rate. Null when rate is null or below 50 mAh/min. Cap at 99 minutes for display.",
+        "6. Remaining percent: use frame.remainingPercent when present and 0..100. Otherwise derive from rest cell voltage with the same Li-ion cell voltage lookup table the simulator uses (put the table in one shared object, CellVoltageCurve, used by both).",
+        "7. Rapid sag: detect using the proposed rule in config over a 2 second window.",
+        "8. Return BatteryAnalysis. Never throw on bad input; return safe values."
+      ]
+    },
+    "rtl_calculator": {
+      "file": "RtlCalculator.kt",
+      "formula": "requiredPercent = (distanceToHomeM / cruisingSpeedMps) * dischargePercentPerSec + safetyMarginPercent. FRD FR-3.1.",
+      "details": [
+        "distanceToHomeM = haversine distance from the latest position to the home point (GeoMath.haversineMeters). Home point = the first position received when the app starts receiving data (Day 1), stored in TelemetryRepository. Add a TODO comment: Day 2 should use HOME_POSITION or arm state.",
+        "dischargePercentPerSec = consumptionMahPerMin / 60 / capacityMah * 100. If consumption rate is unknown, requiredPercent is null and RTL alert is not evaluated.",
+        "belowRequired = remainingPercent < requiredPercent (FR-3.2).",
+        "cruisingSpeedMps from config (suggested default 5 m/s).",
+        "Round displayed required percent up to the next integer.",
+        "returnEtaSec = ceil5(distanceToHomeM / cruisingSpeedMps). Null when distance is unknown. returnEtaExceedsTimeLeft per config rule. This ETA is informational and does not create alerts by itself; the alert comes from the existing dynamic RTL rule."
+      ]
+    },
+    "geo_math": "GeoMath.haversineMeters(lat1, lon1, lat2, lon2): Double using Earth radius 6371000 m.",
+    "flight_clock": {
+      "file": "FlightClock.kt",
+      "purpose": "Elapsed flight time for the status bar.",
+      "behavior": [
+        "Starts per flight_timer_start_rule, uses the injectable Clock (simulator speed multiplier must also speed the flight clock so fast scenarios look right: use simulated time from frame timestamps, not wall time).",
+        "Exposes elapsedSec. Formatted by the ViewModel as m:ss under one hour, h:mm:ss after.",
+        "reset() on transport swap or user reset."
+      ]
+    }
+  },
+  "alert_engine": {
+    "file": "core/alert/AlertEngine.kt",
+    "goal": "Turn BatteryAnalysis + RtlAssessment + connection state into one current ActiveAlert (or none), exactly as the FRD alert matrix, with hysteresis so levels do not flicker.",
+    "inputs": [
+      "BatteryAnalysis",
+      "RtlAssessment",
+      "ConnectionState",
+      "now: Long"
+    ],
+    "output": "StateFlow<AlertState> where AlertState = (active: ActiveAlert?, cellFault: Boolean, history: list of the last 20 level changes with timestamps for debugging only)",
+    "alert_matrix_per_FRD": [
+      {
+        "level": "NOTICE",
+        "trigger": "remainingPercent <= 30",
+        "title": "Battery 30%",
+        "message": "Plan to return soon",
+        "dismissible": true
+      },
+      {
+        "level": "WARNING",
+        "trigger": "remainingPercent <= 20 OR any cell (measured) <= 3.65 V",
+        "title": "Low battery",
+        "message": "Warning, low battery",
+        "dismissible": true
+      },
+      {
+        "level": "CRITICAL",
+        "trigger": "remainingPercent <= requiredPercent (dynamic RTL) OR any cell <= 3.50 V",
+        "title": "Return now",
+        "message": "Mandatory RTL recommended!",
+        "dismissible": false
+      },
+      {
+        "level": "EMERGENCY",
+        "trigger": "any cell <= 3.40 V OR rapid sag",
+        "title": "Land immediately",
+        "message": "Land immediately",
+        "dismissible": false
+      },
+      {
+        "level": "CELL_FAULT (flag, separate from level)",
+        "trigger": "cellDeltaV > 0.08",
+        "title": "Cell imbalance",
+        "message": "Cell voltage imbalance - land & inspect battery",
+        "dismissible": true
+      }
+    ],
+    "rules": [
+      "The highest active level wins. Order: EMERGENCY > CRITICAL > WARNING > NOTICE > NONE.",
+      "CELL_FAULT is evaluated independently and is shown in addition to the level, never replacing a higher level. If the level is NONE or NOTICE, the cell fault is the visible alert; otherwise it appears as a small secondary chip.",
+      "Escalation is immediate (no debounce) for CRITICAL and EMERGENCY. For NOTICE, WARNING and CELL_FAULT, require the condition to hold for alert_debounce_ms (1500 ms) to avoid noise.",
+      "De-escalation uses hysteresis: a percent trigger clears only when the value is above threshold + alert_hysteresis_percent; a voltage trigger clears only when above threshold + alert_hysteresis_cell_voltage_v. CRITICAL and EMERGENCY, once raised, clear only when their conditions have been false for 5 continuous seconds.",
+      "CRITICAL and EMERGENCY are NOT dismissible (FRD FR-3.2: un-dismissable). They disappear only when the condition clears. Add a code comment: 'Product decision pending with Exodia: allow silencing audio only.'",
+      "Link loss: if the connection is LinkLost (no frames for link_lost_timeout_ms) show a distinct LINK LOST state, which is NOT a battery level. Never display stale numbers as if live: grey out all values and show the last-seen time.",
+      "The engine is pure Kotlin and driven by a function evaluate(...) so it is testable with a fake clock."
+    ],
+    "output_ports": {
+      "interface": "AlertOutput { fun onAlertChanged(previous: ActiveAlert?, current: ActiveAlert?) ; fun onPeriodicStatus(analysis: BatteryAnalysis) ; fun release() }",
+      "day1_implementation": "NoOpAlertOutput that does nothing (optionally logs with Log.d). The UI shows the alerts visually; sound, vibration and TTS are Day 2.",
+      "day2_plan_comment": "Day 2 adds ToneAlertOutput (siren), VibrationAlertOutput, TtsAlertOutput, a CompositeAlertOutput. Voice lines per FRD: 'Warning, low battery', 'Mandatory RTL recommended', 'Land immediately', 'Cell voltage imbalance - land and inspect battery'. Periodic status every 60 s: 'Battery 48 percent, cell average 3.82 volts'."
+    }
+  },
+  "telemetry_repository": {
+    "file": "core/telemetry/TelemetryRepository.kt",
+    "responsibilities": [
+      "Own the active TelemetryTransport. Expose start() and stop().",
+      "Collect frames, keep latest BatteryFrame and PositionFrame with their timestamps.",
+      "Emit a combined StateFlow<TelemetrySnapshot> (battery?, position?, connection, lastFrameAtMs) updated on every frame.",
+      "Run the link-loss watchdog: if no frame arrives within link_lost_timeout_ms set connection to LinkLost and keep snapshot values marked stale (stale = true).",
+      "Run analysis: on each battery frame call BatteryAnalyzer, RtlCalculator and AlertEngine and expose StateFlow<MonitorState> (analysis, rtl, alertState, connection, stale).",
+      "Provide swapTransport(newTransport) so Day 2 can switch from simulator to real MAVLink at runtime. It must stop the old one, reset analyzer history and chemistry detection, and start the new one."
+    ],
+    "threading": "All heavy work on Dispatchers.Default. State exposed as StateFlow. No work on the main thread."
+  },
+  "viewmodel_and_ui_state": {
+    "file": "ui/monitor/BatteryMonitorViewModel.kt",
+    "ui_state": {
+      "BatteryUiState": "A single immutable data class built from MonitorState. Fields: connection: UiConnection (CONNECTING, LIVE, LINK_LOST, ERROR), isStale: Boolean, batteryPercent: Int?, level: UiLevel (NORMAL, NOTICE, WARNING, CRITICAL, EMERGENCY), cellFaultActive: Boolean, timeRemainingText: String? (for example \"18 min\"), cells: List<CellUi>, cellAverageText, cellDeltaText, packVoltageText, currentText, temperatureText, distanceHomeText: String? (for example '640 m' or '1.2 km'), returnRequiredText: String?, flightTimeText: String? (for example '12:34'), returnEtaText: String? (for example '2 min 10 s' or '45 s'), returnEtaWarn: Boolean, banner: BannerUi?, modal: ModalUi?, simulatorMode: Boolean.",
+      "CellUi": "index (1-based), voltageText (\"3.82\"), fraction (0..1 for the bar, based on 3.30 V = 0 and 4.20 V = 1), state (NORMAL, LOW, CRITICAL, FAULT_OUTLIER) where outlier means this cell is the lowest or highest in a delta fault.",
+      "formatting_rules": "Percent shown as integer with a thin percent sign. Voltage with two decimals. Time as 'NN min' or '<1 min'. Never show more precision than useful. All formatting happens in the ViewModel mapper, not in composables. Distance: under 1000 m show whole metres ('640 m'), from 1000 m show one decimal in km ('1.2 km'). Return ETA: under 60 s show '45 s', otherwise 'N min' plus ' NN s' only when under 10 minutes. Flight time as m:ss."
+    },
+    "viewmodel": "Exposes val uiState: StateFlow<BatteryUiState> and functions onSimulatorScenarioSelected(id), onSimulatorSpeedSelected(x), onNoticeDismissed(), onToggleSimulatorSheet(). Created with a simple ViewModelProvider.Factory reading from AppContainer."
+  },
+  "ui_ux": {
+    "design_intent": "A calm, premium, instrument-cluster feel. Think a modern drone ground station crossed with a luxury car dashboard: dark, quiet, high contrast, precise typography, one clear focal point, colour used ONLY to communicate state. It must NOT look like a default Material3 app, a dashboard template, or generic AI output: no gradients on cards, no glassmorphism, no emoji, no stock illustrations, no drop-shadow stacks, no rainbow charts, no centered-everything layouts.",
+    "principles": [
+      "One-second glance: the pilot must read battery percent and the alert state in under one second from arm's length.",
+      "Colour means state. Normal is calm and neutral; colour intensifies only when attention is needed.",
+      "Show only what a pilot needs for the battery decision. If it is not in the 'visible' list below, it is hidden.",
+      "Large touch targets (minimum 56 dp) because of gloves, but there are almost no controls in the main view.",
+      "Motion is purposeful and subtle: value changes ease, alerts pulse. Never decorative animation.",
+      "Layout is built for 1920x1080 landscape at roughly 7 inches (high density). Use dp and sp, test at xhdpi to xxhdpi. Use windowSizeClass-independent fixed proportions (see layout) with weights, not hard-coded pixel sizes.",
+      "Trip information (flight time, distance home, return ETA) is small, quiet and lives only in the top bar. It never competes with the battery ring. If any extra item makes the screen feel busy, drop it rather than shrink it.",
+      "Reference-driven professionalism: structure like a pro ground-control app (quiet status strip, one zoned battery instrument, short prompts) but sparing and original. When in doubt, remove an element rather than add one."
+    ],
+    "theme": {
+      "mode": "Dark only (no light theme). Pilots are outdoors and the controller is used in glare, so use true dark surfaces with high-contrast text. Do not follow the system theme.",
+      "colors": {
+        "background": "#0A0E13",
+        "surface": "#121820",
+        "surface_raised": "#1A222C",
+        "outline_subtle": "#26303B",
+        "text_primary": "#EAF0F6",
+        "text_secondary": "#93A3B4",
+        "text_disabled": "#4B5866",
+        "state_normal": "#3DD68C",
+        "state_notice": "#F2D04B",
+        "state_warning": "#FF9F1C",
+        "state_critical": "#FF4D4F",
+        "state_emergency": "#FF1F44",
+        "state_cell_fault": "#FF7A2F",
+        "state_link_lost": "#7E8A97",
+        "on_state_dark_text": "#0A0E13",
+        "on_state_light_text": "#FFFFFF",
+        "accent": "#5AA9FF",
+        "status_strip_background": "#0A0E13 at 72 percent opacity",
+        "zone_yellow_track": "#F2D04B at 30 percent opacity",
+        "zone_red_track": "#FF4D4F at 30 percent opacity"
+      },
+      "usage_rules": [
+        "Screen background is always #0A0E13 EXCEPT in EMERGENCY, where the whole screen flashes (see ui_ux.alert_visuals).",
+        "State colours are used for: the battery ring/arc, the percent number tint ONLY at warning or above, the banner, overlay borders and the cell bar fill of the affected cells. Normal state shows the ring in state_normal but all text in neutral white.",
+        "Do not use more than two accent colours on screen at once during normal operation.",
+        "All text must meet WCAG AA contrast against its background (4.5:1 for body, 3:1 for large text). On state-coloured filled banners use on_state_dark_text for notice/warning/cell fault and white for critical/emergency.",
+        "The accent #5AA9FF is for selected states in the simulator sheet, focus rings and the connection dot when Live only. It is never used for alerts or the battery ring."
+      ],
+      "shapes": "Rounded corners: 20 dp for large panels, 14 dp for chips and cell tiles, 999 dp for pills. No sharp default Material shapes.",
+      "elevation": "No shadows. Separate layers with surface tone and a 1 dp outline_subtle border only.",
+      "spacing_scale_dp": [
+        4,
+        8,
+        12,
+        16,
+        24,
+        32,
+        48
+      ],
+      "screen_padding_dp": 24
+    },
+    "typography": {
+      "family": "Inter (see tech_stack.fonts). Tabular digits on all numerals.",
+      "scale": {
+        "hero_percent": "Inter SemiBold 160 sp, letter spacing -2 sp, line height 1.0. Only the battery percent number.",
+        "hero_unit": "Inter Medium 48 sp, text_secondary, baseline-aligned after the hero number (the percent sign).",
+        "metric_value": "Inter SemiBold 40 sp",
+        "metric_label": "Inter Medium 14 sp, ALL CAPS, letter spacing +1.2 sp, text_secondary",
+        "cell_value": "Inter SemiBold 22 sp",
+        "cell_index": "Inter Medium 12 sp, text_secondary",
+        "banner_title": "Inter Bold 28 sp",
+        "banner_message": "Inter Medium 20 sp",
+        "modal_title": "Inter Bold 56 sp",
+        "modal_message": "Inter Medium 28 sp",
+        "chip": "Inter SemiBold 14 sp"
+      },
+      "rules": "Use at most 3 weights on screen. Never underline. Do not mix fonts.",
+      "feel": "Calm, geometric and professional, close to the feel of DJI's interface type: medium weights, generous spacing, large light-to-semibold numerals, small all-caps labels. Use Inter; do not imitate DJI's proprietary font."
+    },
+    "layout": {
+      "orientation": "Landscape 16:9. The screen is divided into three zones: a slim top status bar, a main area split into a left hero column and a right cell panel, and nothing at the bottom (keep the bottom free so the pilot's thumbs never cover data).",
+      "zones": [
+        {
+          "name": "TopStatusBar",
+          "height_dp": 56,
+          "content_left": "Connection item: a small dot plus text ('Live', 'Connecting', 'Link lost', 'Error'; 'Simulated' with a hollow dot in simulator mode). Then a clock icon plus elapsed flight time '12:34' (hidden until the flight timer starts).",
+          "content_center": "Empty. Do not centre a title or logo.",
+          "content_right": "Icon-plus-value items, DJI-status-strip style: a home icon plus '640 m' (distance from home) and a return-arrow icon plus '2 min' (estimated return time). The return item turns state_warning (icon and value) when returnEtaWarn is true. Items are hidden when data is unknown (never dashes). A secondary alert chip and the simulator icon button (simulator mode only) sit at the far right.",
+          "style": "Translucent strip (status_strip_background) spanning full width with a 1 dp bottom hairline in outline_subtle. Items are icon (16 dp, original line icons, 1.5 dp stroke, text_secondary) plus value (16 sp SemiBold text_primary), spaced 20 dp apart, vertically centred. No text labels beside icons: each item has a contentDescription ('Flight time 12 minutes 34 seconds', 'Distance from home 640 metres', 'Estimated return 2 minutes'). Maximum 4 items visible at once, plus the secondary chip and simulator button when applicable. No app title.",
+          "icons": "Draw 5 original vector icons in code (ImageVector or XML): clock, home, return-arrow, link/signal dot is a plain circle, alert triangle. Do not use Material icon packs for these, and do not copy DJI icons."
+        },
+        {
+          "name": "HeroColumn (left)",
+          "width_fraction": 0.46,
+          "content": [
+            "Battery ring: a thick circular arc (stroke 22 dp) from 7 o'clock to 5 o'clock (270 degrees sweep). The TRACK is zoned, inspired by the DJI Pilot 2 battery indicator: the part of the track below the AlertConfig warning percent (20) is tinted zone_red_track; the part between that and the current 'required to return' percent (from the dynamic RTL, FR-3.1) is tinted zone_yellow_track when required percent is above 20; everything else is outline_subtle. A small 3 dp white return tick, with a tiny 'RTL' label (10 sp, text_secondary), sits on the ring at the required-return percent; it moves smoothly as the value changes and is hidden when the required percent is unknown. The filled arc shows remaining percent, coloured by the alert level (state_normal when normal), rounded caps. When the filled arc's end reaches the return tick the ring turns state_critical (consistent with the Critical alert). Diameter about 62 percent of the zone height.",
+            "Inside the ring: the percent as the hero number (hero_percent) with the percent sign (hero_unit) smaller and baseline aligned. Under it a small label 'REMAINING' (metric_label).",
+            "Under the ring, one line of two metrics separated by a thin vertical divider: 'TIME LEFT' value like '18 min', and 'RETURN NEEDS' value like '24%' (the dynamic RTL required percent). Use metric_value and metric_label. If the value is unknown show an en dash. Do NOT repeat flight time, distance or return ETA here; those live only in the top bar."
+          ],
+          "notes": "The ring is the single focal point of the screen. Nothing else may compete with it in size or contrast during normal operation. The ring is the app's single DJI-style zoned battery indicator: green when sufficient, with the yellow zone showing the power needed to get home."
+        },
+        {
+          "name": "CellPanel (right)",
+          "width_fraction": 0.54,
+          "style": "A single rounded panel (20 dp radius, surface colour, 1 dp outline_subtle) with 24 dp inner padding.",
+          "header_row": "Left: label 'CELLS' (metric_label) and the pack config as a pill like '14S'. Right: 'Avg 3.82 V' and 'Delta 0.04 V' as two quiet text items (text_secondary, values in text_primary). Delta turns state_cell_fault when above the limit.",
+          "cell_grid": "Per-cell tiles in a grid that adapts to the cell count: 6 cells = 3 columns x 2 rows, 12 cells = 6 columns x 2 rows, 14 cells = 7 columns x 2 rows (14 is the default). Each tile: cell number small at the top (cell_index), voltage below (cell_value), and a thin vertical bar (width 6 dp, rounded) beside or beneath it filling according to voltage between 3.30 V and 4.20 V. Bar and value are neutral white/grey when normal; they take the state colour for that cell only when that cell is at or below the warning voltage, or is an outlier in a delta fault. Lowest cell gets a subtle 1 dp ring in text_secondary so the weakest cell is findable at a glance.",
+          "footer_row": "Three small metrics in a row, equal width, separated by thin dividers: 'PACK' (total volts, for example 52.2 V), 'CURRENT' (amps, for example 100 A) and 'TEMP' (for example 41 C). metric_label above, a medium numeric value below (24 sp). No icons."
+        }
+      ],
+      "alignment": "Everything snaps to the 8 dp grid. Hero ring and cell panel are vertically centred in the main area. Equal 24 dp gutters. Left edge text aligns across zones."
+    },
+    "what_is_visible": [
+      "Battery percent (hero)",
+      "Time left and Return-needs percent",
+      "Per-cell voltages with bars",
+      "Cell count (14S), average cell voltage, cell delta",
+      "Pack voltage, current, temperature",
+      "Connection pill (Live / Simulated / Link lost)",
+      "Flight time elapsed (top bar)",
+      "Distance from home/launch point (top bar chip)",
+      "Estimated return time to home (top bar chip)",
+      "The active alert (banner or modal) and nothing else"
+    ],
+    "what_is_hidden_or_excluded": [
+      "No GPS coordinates, altitude, speed, heading, satellite counts.",
+      "No raw MAVLink values, message names, message rates or IDs.",
+      "No app logo, title bar, hamburger menu, bottom navigation, tabs or settings button in Day 1.",
+      "No charts or graphs on the main screen.",
+      "No decorative icons, illustrations, emoji or placeholder text. Only the 5 functional line icons in the top status strip and the alert glyph are allowed.",
+      "No lorem ipsum, 'Welcome' text, tips or onboarding.",
+      "No debug text anywhere visible, except inside the simulator sheet.",
+      "No units spelled out in long form: use V, A, C, min, m only."
+    ],
+    "alert_visuals": {
+      "general": "Alerts must be visible from a metre away and cannot hide the percent number unless the level is CRITICAL or EMERGENCY (where the modal is allowed to take over). Every alert change animates in over 200 ms (fade + 12 dp slide for banners, scale 0.96 to 1 for modals). The top bar remains visible (dimmed) under Warning banners; under CRITICAL and EMERGENCY modals the modal covers the top bar except the connection pill.",
+      "NORMAL": "No banner. Ring in state_normal. Everything neutral.",
+      "NOTICE": {
+        "treatment": "Top yellow banner (state_notice background) sliding in below the status bar, centred horizontally with a maximum width of 760 dp, height 64 dp, rounded 14 dp. Title 'Battery 30%' (banner_title) and message 'Plan to return soon' (banner_message), both in on_state_dark_text. Ring turns state_notice.",
+        "dismiss": "A small 'Got it' pill button on the right (56 dp touch height). Dismissing hides the banner but the ring keeps its colour. The banner returns only if the level escalates.",
+        "audio_haptic_day2": "Single chime, short vibration (Day 2)."
+      },
+      "WARNING": {
+        "treatment": "Amber overlay: a 6 dp pulsing border around the whole screen in state_warning (opacity pulsing 0.5 to 1.0, period 1.2 s) plus an amber banner like Notice with title 'Low battery' and message 'Warning, low battery'. Ring and percent number turn state_warning. Affected cells tinted amber.",
+        "dismiss": "Banner can be dismissed with 'Got it' but the border keeps pulsing while the condition holds.",
+        "audio_haptic_day2": "Repeated voice alert (Day 2)."
+      },
+      "CRITICAL": {
+        "treatment": "Full-screen red modal (state_critical background at 96 percent opacity over the dashboard). Centre: title 'RETURN NOW' (modal_title, white), message 'Mandatory RTL recommended!' (modal_message), and below it two large figures side by side: 'REMAINING 18%' and 'NEEDED 24%' (when the trigger is the dynamic RTL) or the lowest cell voltage (when the trigger is voltage). Small footer text 'This alert clears when conditions improve' in white at 70 percent opacity.",
+        "dismiss": "NONE. There is no button, no tap-to-close, no back-button dismissal (consume the back press). Per FRD FR-3.2 it is un-dismissable and clears automatically.",
+        "audio_haptic_day2": "Continuous high-pitch siren and maximum vibration (Day 2)."
+      },
+      "EMERGENCY": {
+        "treatment": "Flashing red full screen: the whole background alternates between state_emergency and #7A0016 every 500 ms (smooth 150 ms transitions, no strobing faster than 2 Hz). Huge centred text 'LAND NOW' (modal_title scaled to 72 sp, white) with the message 'Land immediately' under it and the lowest cell voltage in a white pill.",
+        "dismiss": "NONE.",
+        "audio_haptic_day2": "Continuous voice command 'Land immediately' (Day 2)."
+      },
+      "CELL_FAULT": {
+        "treatment": "Orange overlay: an orange (state_cell_fault) banner with title 'Cell imbalance' and message 'Cell voltage imbalance - land & inspect battery'. The cell panel header delta value turns orange and the highest and lowest cell tiles get an orange outline.",
+        "dismiss": "Dismissible with 'Got it'. Re-appears if delta clears and returns.",
+        "audio_haptic_day2": "Voice alert (Day 2)."
+      },
+      "LINK_LOST": {
+        "treatment": "All numbers dim to text_disabled, the ring track turns state_link_lost, and a grey banner reads 'Telemetry lost' with 'Last data 6 s ago' updating each second. This is not a battery alert; it must never look like a healthy battery.",
+        "dismiss": "None. Clears when frames resume."
+      },
+      "stacking_rules": "Only one banner/modal at a time. Priority: EMERGENCY modal > CRITICAL modal > LINK_LOST banner > WARNING banner > CELL_FAULT banner > NOTICE banner. Cell fault and a lower level can both be represented: the winning alert is the banner/modal; the secondary one appears as a small chip at the right of the top status bar (for example 'Cell fault').",
+      "prompt_anatomy": "Banner prompts (Notice, Warning, Cell Fault, Link lost) follow a DJI-style prompt pattern: horizontally centred below the top strip, max width 760 dp, height 72 dp, 14 dp radius. Left: a 40 dp severity glyph (the original alert triangle, or a clock for Link lost) in a darker circle. Centre: title (banner_title) over one short message line (banner_message). Right: 'Got it' button only where dismissible. Slide in 12 dp from the top over 200 ms. One prompt at a time.",
+      "no_countdown_no_auto_action": "Unlike DJI's low-battery RTH prompt, the app shows no countdown, no automatic action and no cancel control for return; it only recommends return."
+    },
+    "motion": {
+      "number_changes": "Animate the percent and ring with a 400 ms ease-out. Cell bars animate 250 ms. Do not animate more often than the data updates (throttle UI state to 4 updates per second using sample(250 ms) in the ViewModel to avoid jitter and battery drain).",
+      "alerts": "As described above. Respect that pulses are slow; no flashing faster than 2 Hz anywhere.",
+      "no_other_animation": true
+    },
+    "accessibility": [
+      "contentDescription on the ring ('Battery 48 percent, 18 minutes remaining, normal') updating with state.",
+      "Never rely on colour alone: every level has a text label, and the ring/arc has the number.",
+      "Minimum touch target 56 dp.",
+      "Support font scale up to 1.15 without clipping.",
+      "Top bar chips have contentDescriptions like 'Distance from home 640 metres' and 'Estimated return 2 minutes'."
+    ],
+    "simulator_sheet_ui": {
+      "access": "Small outlined icon button in the top bar, visible only when simulatorMode is true. Opens a ModalBottomSheet (the one place default Material3 is allowed, but restyle with the app colours: surface container, outline_subtle border, rounded 20 dp top corners).",
+      "content": "Title 'Simulator' (modal title style 22 sp). A scrollable row of scenario chips from the simulator scenario list (single select). A segmented control for speed: x1, x5, x20. Buttons: Pause/Resume and Reset. No other content. Also a 'Battery' row of chips, one per battery profile (single select).",
+      "style": "Chips: 14 dp radius, 56 dp height, selected chip filled with text_primary at 12 percent and a 1 dp text_primary outline. All text in the typography scale."
+    },
+    "empty_and_error_states": {
+      "connecting": "On launch show the layout with ring empty, values as en dashes, connection pill 'Connecting'. Do not show a spinner or splash.",
+      "no_data_yet": "Same as connecting. Never show 0% as if it were real.",
+      "error": "Pill 'Error' in state_critical dot; a small text under the ring with the short error message."
+    },
+    "design_reference": {
+      "statement": "Use DJI Pilot 2 and the DJI Agras app as a REFERENCE for structure and professionalism (a quiet translucent top status strip, a zoned battery indicator that shows the return-home point, short prompt banners, clear severity colours). The result must be an ORIGINAL design with its own theme. Do not copy pixel layouts, icons, fonts, logos, names or wording from DJI. The word 'DJI' must not appear anywhere in the UI.",
+      "patterns_adopted": [
+        {
+          "pattern": "Zoned battery indicator that marks the power needed to return home",
+          "dji_behaviour": "In DJI Pilot 2 the battery indicator shows coloured zones: green = sufficient battery, yellow = power required to return home, red = critical low and auto-landing levels, with markers for the low and critical thresholds. The estimated remaining flight time sits next to it, and the zones adjust automatically with the aircraft's location and status.",
+          "how_we_apply": "The battery ring gets a zoned track and a 'return' tick (see ui_ux.layout.zones HeroColumn). The tick moves as distance to home and discharge rate change, exactly like the dynamic RTL threshold in FR-3.1.",
+          "source": "https://dl.djicdn.com/downloads/matrice-30-series/20220426/Matrice30_Series_User_Manual_V1.0_EN_2.pdf"
+        },
+        {
+          "pattern": "Tiered battery warnings with distinct severity",
+          "dji_behaviour": "Separate low-battery, critical-low-battery and low-voltage levels. Low: long beeps, pilot keeps control. Critical: short beeps, 'unsafe to continue, land immediately'. Thresholds are user-settable. DJI Agras also has a critical low-voltage warning (T50: pack voltage under 47.6 V).",
+          "how_we_apply": "Our five FRD levels map onto this tiering. Thresholds stay in AppConfig so Day 2 can expose them. Note: 47.6 V / 14 cells = 3.40 V per cell, which equals the FRD Emergency cell voltage, and supports the 14S profile assumption.",
+          "source": "https://www.bruksanvisningpdf.no/dji/agras-t50/bruksanvisning?p=87 (T50 manual, Low Battery and Low Voltage Warnings)"
+        },
+        {
+          "pattern": "Low-battery return prompt",
+          "dji_behaviour": "A warning prompt appears in the app when the remaining battery only supports flying home; the aircraft returns automatically after a 10-second countdown unless cancelled.",
+          "how_we_apply": "We show the same kind of prompt as the Critical modal (FR-3.2) but the app only RECOMMENDS return. Do NOT build a countdown, automatic action or cancel button; the FRD does not ask the app to command the aircraft.",
+          "source": "https://dl.djicdn.com/downloads/matrice-30-series/20220426/Matrice30_Series_User_Manual_V1.0_EN_2.pdf"
+        },
+        {
+          "pattern": "Voice prompts and short imperative messages",
+          "dji_behaviour": "Pilot 2 announces key events by voice (for example when the Home Point is set).",
+          "how_we_apply": "Alert copy stays short and imperative (already per FRD). Voice output itself is Day 2.",
+          "source": "same M30 manual"
+        },
+        {
+          "pattern": "Compact status strip over the main view",
+          "dji_behaviour": "A top bar with small icon-plus-value items (status, battery, signal, GNSS) overlays the main view; the content area stays uncluttered.",
+          "how_we_apply": "The top status bar becomes a translucent strip of icon-plus-value items (see TopStatusBar).",
+          "source": "DJI Pilot 2 user manuals (Top Bar section), https://dl.djicdn.com/downloads/matrice-30-series/20220426/Matrice30_Series_User_Manual_V1.0_EN_2.pdf"
+        },
+        {
+          "pattern": "Home point as a reference",
+          "dji_behaviour": "Home point defaults to the first location where the aircraft had a strong GNSS signal; it can be updated to the aircraft or controller position.",
+          "how_we_apply": "Matches our Day 1 rule (first position received). Day 2 can add 'set home to controller position' if Exodia wants it. Document only.",
+          "source": "https://www.easymanua.ls/dji/agras-t50/manual?p=86"
+        }
+      ],
+      "deliberately_different": [
+        "Own colour theme: blue-tinted slate surfaces and a single cool accent, not DJI's neutral black/white.",
+        "Own typeface (Inter) and own vector line icons drawn for this app.",
+        "No camera feed, map, joystick or attitude widgets; this app is only a battery guardian, so the screen is simpler than DJI's.",
+        "Alerts follow the FRD wording and behaviour (repeated, not once-per-flight; critical is un-dismissable), not DJI's.",
+        "No automatic RTH or aircraft control of any kind."
+      ],
+      "caveat": "DJI's public manuals describe the Pilot 2 / Agras behaviour in words and annotated diagrams. This design interprets them; it is not a copy of any screen, and the exact current DJI Agras app layout was not inspected on a device."
+    }
+  },
+  "composables": {
+    "list": [
+      "BatteryMonitorScreen(state, onEvents): root, switches between dashboard layer and alert layers.",
+      "TopStatusBar(connection, distanceText, simulatorMode, secondaryChip, onSimulatorClick)",
+      "BatteryRing(percent, level, stale): custom Canvas drawing with animated sweep.",
+      "HeroMetrics(timeText, returnNeedsText)",
+      "CellPanel(cells, packConfigText, avgText, deltaText, deltaFault)",
+      "CellTile(cell)",
+      "FooterMetrics(packText, currentText, tempText)",
+      "AlertBanner(banner, onDismiss)",
+      "AlertModal(modal): CRITICAL and EMERGENCY",
+      "ScreenBorderPulse(level)",
+      "SimulatorControlSheet(...)"
+    ],
+    "rules": [
+      "Composables are stateless and take plain values. All strings are produced by the ViewModel mapper except static labels, which go in strings.xml.",
+      "Every composable has a @Preview with a dark background and landscape 1920x1080 at 320 dpi, including previews for each alert level (normal, notice, warning, critical, emergency, cell fault, link lost) so the design can be reviewed without running the simulator.",
+      "No business logic in composables."
+    ],
+    "strings": "All user-visible text in res/values/strings.xml, in English. Alert titles and messages exactly as in the alert matrix."
+  },
+  "frd_traceability": {
+    "note": "Each FRD requirement and where it lives, so nothing is lost. Items marked Day 2 must exist only as documented extension points.",
+    "map": [
+      {
+        "fr": "FR-1.1 serial connection to telemetry",
+        "day": "2",
+        "where": "TelemetryTransport interface (Day 1), real transports Day 2"
+      },
+      {
+        "fr": "FR-1.2 parse MAVLink BATTERY_STATUS, SYS_STATUS, GLOBAL_POSITION_INT",
+        "day": "2 (parsing); Day 1 models carry the same fields after conversion",
+        "where": "BatteryFrame, PositionFrame, simulator emits them"
+      },
+      {
+        "fr": "FR-1.3 auto-detect chemistry and cell count",
+        "day": "1",
+        "where": "ChemistryDetector"
+      },
+      {
+        "fr": "FR-2.1 voltage sag compensation",
+        "day": "1",
+        "where": "BatteryAnalyzer step 2"
+      },
+      {
+        "fr": "FR-2.2 cell delta alert > 0.08 V",
+        "day": "1",
+        "where": "BatteryAnalyzer + AlertEngine"
+      },
+      {
+        "fr": "FR-2.3 consumption rate and remaining time",
+        "day": "1",
+        "where": "BatteryAnalyzer steps 4-5"
+      },
+      {
+        "fr": "FR-3.1 dynamic RTL threshold",
+        "day": "1",
+        "where": "RtlCalculator"
+      },
+      {
+        "fr": "FR-3.2 un-dismissable RTL override alert",
+        "day": "1 (visual)",
+        "where": "AlertEngine + AlertModal"
+      },
+      {
+        "fr": "Alert matrix: Notice, Warning, Critical, Emergency, Cell Fault (visual indicator and prompt text)",
+        "day": "1 (visual)",
+        "where": "AlertEngine + ui alert_visuals"
+      },
+      {
+        "fr": "Alert matrix audio and haptic",
+        "day": "2",
+        "where": "AlertOutput interface, NoOpAlertOutput in Day 1"
+      },
+      {
+        "fr": "FR-5.1 spray interlock at 20 percent (option)",
+        "day": "2",
+        "where": "AppConfig.spray_interlock_percent exists; no UI or command in Day 1. Needs a MAVLink command; unspecified in FRD."
+      },
+      {
+        "fr": "FR-5.2 periodic TTS every 60 s",
+        "day": "2",
+        "where": "AlertOutput.onPeriodicStatus"
+      },
+      {
+        "fr": "FR-5.3 blackbox logging",
+        "day": "2",
+        "where": "Add a BlackboxLogger that subscribes to the MonitorState flow; document in docs/DAY2_PLAN.md"
+      }
+    ]
+  },
+  "day2_extension_points": {
+    "write_to": "docs/DAY2_PLAN.md (short, bullet list, no fluff)",
+    "must_state": [
+      "Add MAVLink parsing: dronefleet io.dronefleet.mavlink:mavlink:1.1.11 inside new transport classes only.",
+      "Add UdpTransport, SerialFileTransport, UsbSerialTransport (usb-serial-for-android 3.10.0) implementing TelemetryTransport; register in TransportFactory.",
+      "Add TelemetryService as a foreground service (type connectedDevice) owning TelemetryRepository so monitoring continues in the background; request POST_NOTIFICATIONS at runtime.",
+      "Add ToneAlertOutput, VibrationAlertOutput, TtsAlertOutput inside a CompositeAlertOutput.",
+      "Add BlackboxLogger writing CSV to getExternalFilesDir.",
+      "Add a settings screen for internal resistance, capacity, cruising speed, spray interlock.",
+      "Use HOME_POSITION or arm state for the home point instead of the first position.",
+      "Which transport actually works on the G20 is unverified and must be tested on the device.",
+      "Replace the Agras-class battery profile with Exodia's exact aircraft and battery values; consider dual-battery (two packs) display for T100.",
+      "Confirm how telemetry reaches the app (MAVLink via the Skydroid G20/GR01 per the FRD, or a DJI-specific route); DJI Agras is not documented here as MAVLink."
+    ]
+  },
+  "code_quality_rules": [
+    "Idiomatic Kotlin. Immutable data classes. No !! operators. Null-safety respected.",
+    "Small files and functions. Each class has one job. Names describe intent.",
+    "No unused code, no dead stubs that pretend to work, no TODO spam. A short list of TODO comments is allowed only where this spec says so.",
+    "Comments only where the reason is not obvious (units, formulas, FRD references like 'FR-2.1').",
+    "No hard-coded dp, colours or strings in composables outside the theme/strings files.",
+    "Build must succeed with ./gradlew assembleDebug and unit tests with ./gradlew testDebugUnitTest, with zero warnings treated as errors.",
+    "Do not add features, screens, settings or dependencies beyond this spec."
+  ],
+  "unit_tests_required": {
+    "location": "app/src/test/java/com/exodia/batteryalert/",
+    "cases": [
+      "BatteryAnalyzer: 14 cells at 3.80 V, current 100 A, Ri 0.002 ohm per cell -> rest cell voltage 4.000 V (tolerance 0.001).",
+      "BatteryAnalyzer: cells 3.82, 3.80, 3.71 and nine others at 3.78 -> cellDeltaV 0.11 and fault flag true; with 3.82 and 3.76 -> 0.06, no fault; exactly 0.08 -> no fault (strictly greater than).",
+      "ChemistryDetector: 14 valid cells -> cellCount 14, detected true. No cells and pack 51.8 V -> cellCount 14, detected false. 6 cells -> 6.",
+      "RtlCalculator: distance 600 m, speed 5 m/s, discharge 0.03 %/s, margin 15 -> required 18.6; remaining 18 -> belowRequired true; remaining 19 -> false.",
+      "RtlCalculator: unknown consumption rate -> requiredPercent null, belowRequired false.",
+      "GeoMath: two points 1 degree of latitude apart -> about 111195 m (tolerance 200 m).",
+      "AlertEngine: percent 31 -> NONE; 30 -> NOTICE after debounce; 20 -> WARNING; cell 3.65 -> WARNING; cell 3.50 -> CRITICAL immediately; below required -> CRITICAL; cell 3.40 -> EMERGENCY immediately; rapid sag -> EMERGENCY.",
+      "AlertEngine: highest level wins when several conditions are true; cell fault coexists as a flag.",
+      "AlertEngine hysteresis: after WARNING at 20 percent, 21 percent keeps WARNING, 24 percent clears it; CRITICAL stays until conditions are false for 5 s.",
+      "AlertEngine: CRITICAL and EMERGENCY have dismissible=false; NOTICE and CELL_FAULT have dismissible=true.",
+      "AlertEngine link loss: no frames for 3 s -> LINK_LOST state, not a battery level.",
+      "Consumption rate: constant 600 mAh over 60 s of samples -> 600 mAh/min; fewer than 10 s of data -> null.",
+      "SimulatorTransport with a fake clock: first frame emitted after Connecting; cell voltages decrease monotonically over time at constant current; scenario CELL_IMBALANCE produces delta greater than 0.08.",
+      "TelemetryRepository: stopping emission for more than 3 s sets LinkLost and marks stale; resuming clears it.",
+      "FlightClock: no elapsed time until current >= 5 A; then elapsed follows frame timestamps (including simulator speed x20); reset() returns to zero.",
+      "Return ETA: distance 600 m at 5 m/s -> 120 s; 612 m -> 125 s (rounded up to next 5); unknown distance -> null.",
+      "returnEtaExceedsTimeLeft: ETA 6 min with 7 min left -> true; ETA 2 min with 18 min left -> false.",
+      "ViewModel formatters: 640 m -> '640 m'; 1234 m -> '1.2 km'; 45 s -> '45 s'; 130 s -> '2 min 10 s'; 754 s flight -> '12:34'; 3725 s -> '1:02:05'.",
+      "BatteryProfiles: default profile is AGRAS_T55_DB1580 with cellCount 14 and capacityMah 30000; byId returns each profile; every profile is flagged confirmed=false.",
+      "Time left with the 30000 mAh profile: 50 percent remaining (15000 mAh) at 1500 mAh/min consumption -> 10 minutes.",
+      "Simulator with default profile emits 14 cell voltages and a first-frame pack voltage between 57.5 and 59 V; switching profile resets state.",
+      "Dynamic RTL scenario: 900 m, 5 m/s, 110 A on 30000 mAh -> required percent between 33 and 34, remaining 30 -> belowRequired true.",
+      "Ring zone math: with required percent 33.4 and warning 20, the yellow zone spans 20 to 33.4 percent and the red zone 0 to 20; with required 15 there is no yellow zone and the tick sits at 15; unknown required -> no tick. Put this pure calculation in a testable function (RingZones)."
+    ]
+  },
+  "deliverables": [
+    "A complete Android Studio project that builds with ./gradlew assembleDebug.",
+    "All code organised exactly per package_and_modules.",
+    "docs/TRANSPORTS_DAY2.md and docs/DAY2_PLAN.md as described.",
+    "README.md (max 40 lines): what the app is, how to run in simulator mode, how to open the simulator sheet, the package structure in one table, how Day 2 plugs in, and a clear note that real-hardware connection to the G20 is not built or tested yet.",
+    "Unit tests as listed, all passing.",
+    "@Preview composables for every alert state.",
+    "docs/SPEC.json (verbatim copy of this prompt), docs/PROGRESS.md (maintained per session_handoff) and AGENTS.md at the repo root.",
+    "A git repository with a commit after each build step."
+  ],
+  "final_checklist_to_report": [
+    "Builds with assembleDebug and tests pass",
+    "Landscape locked, immersive, keep-screen-on",
+    "Single screen only, no extra navigation or menus",
+    "Dark theme only, custom palette, Inter font with tabular digits",
+    "Battery ring is the single focal point; hero percent readable at a glance",
+    "Cell tiles adapt to 6, 12 and 14 cells",
+    "Only the visible items from ui_ux.what_is_visible appear on the main screen",
+    "Notice, Warning, Cell fault banners dismissible; Critical and Emergency are not",
+    "Emergency flash never faster than 2 Hz",
+    "Link lost never shows stale values as live",
+    "Simulator pill reads 'Simulated' and simulator sheet works for all scenarios",
+    "core.* has no dependency on ui.*; core.analysis and core.alert have no Android imports",
+    "TelemetryTransport is the only way data enters the app; SimulatorTransport is the only implementation",
+    "All thresholds come from AppConfig; unsourced defaults are commented 'SUGGESTED DEFAULT - not from FRD'",
+    "No forbidden dependencies were added",
+    "Top bar shows at most: connection pill, flight time, HOME chip, RETURN chip; chips hidden when data unknown",
+    "Return chip turns warning colour when the trip home would use most of the remaining time",
+    "docs/SPEC.json, docs/PROGRESS.md and AGENTS.md exist and PROGRESS.md is up to date",
+    "No tool-specific files are required to build; Gradle wrapper is committed; git history exists",
+    "Battery facts come only from BatteryProfile; default is Agras-class 14S 30000 mAh, labelled 'AGRAS-CLASS APPROXIMATION - exact model unconfirmed'",
+    "Simulator sheet has a Battery selector; UI works at 14 cells",
+    "Profile can be swapped by changing AppConfig.batteryProfileId only",
+    "Top bar is a translucent icon-plus-value strip (clock, home, return) with no text labels",
+    "Battery ring track shows red and yellow zones and a moving return tick tied to the dynamic RTL percent",
+    "Banner prompts are centred (max 760 dp) with a severity glyph; no countdown, no auto action",
+    "No DJI name, logo, icon or font appears in the app; icons are original"
+  ],
+  "do_not": [
+    "Do not build a real MAVLink, UDP, serial or USB connection in Day 1.",
+    "Do not add a second screen, navigation, settings, login or onboarding.",
+    "Do not add sound, vibration, TTS, notifications or a foreground service in Day 1.",
+    "Do not show GPS coordinates, altitude, speed or any data not listed as visible.",
+    "Do not use default Material3 colours or typography, gradients, shadows, glass effects or emoji.",
+    "Do not guess hardware behaviour; where the spec says unverified, leave it documented as unverified.",
+    "Do not ask questions; make the most reasonable choice within this spec and list any assumption in the final notes.",
+    "Do not create any tool-specific project files, plugins or cloud dependencies; the project must be plain files.",
+    "Do not finish a session without updating docs/PROGRESS.md.",
+    "Do not put flight time, distance or return ETA anywhere except the top bar.",
+    "Do not copy DJI screens, icons, fonts, logos or wording, and do not write 'DJI' anywhere in the UI.",
+    "Do not add a map, camera view, joystick or any control that commands the aircraft."
+  ],
+  "version": "v4: v3 plus DJI Pilot 2 / DJI Agras-inspired UI structure (original theme). v3: Agras-class battery profiles. v2: flight time, return ETA, session handoff.",
+  "session_handoff": {
+    "why": "The user builds with free tiers of several AI coding tools (for example Codex and Antigravity) and will hit usage limits mid-build. A different tool must be able to pick up the EXACT same project and continue consistently, with no restart.",
+    "plain_files_rule": [
+      "The project is plain files on disk: a normal Gradle Android project that opens in Android Studio and builds with ./gradlew. No tool-specific project files, plugins, config folders, cloud workspaces or generated-by-tool metadata may be required to build or continue it.",
+      "Commit the Gradle wrapper (gradlew, gradlew.bat, gradle/wrapper/*) so any tool or machine builds the same way.",
+      "Run git init at the start and commit after each completed step with a clear message ('step 3: BatteryAnalyzer + tests'). If git is unavailable, say so in PROGRESS.md and keep going.",
+      "Keep the full spec in the repo at docs/SPEC.json (copy of this JSON, never edited by the tool except when the user supplies a new version)."
+    ],
+    "files_to_create": {
+      "docs/SPEC.json": "Verbatim copy of this prompt. Source of truth for requirements. If code and spec disagree, the spec wins unless PROGRESS.md records a decision that changed it.",
+      "docs/PROGRESS.md": "Living handoff log. Format below. Mandatory.",
+      "AGENTS.md": "Max 25 lines at the repo root. Says: read docs/SPEC.json first, then docs/PROGRESS.md; follow the architecture rules (core.* never imports ui.*; data enters only through TelemetryTransport; thresholds only from AppConfig); update docs/PROGRESS.md at the end of each session; do not add dependencies or features outside the spec; build with ./gradlew assembleDebug and test with ./gradlew testDebugUnitTest. This is a plain markdown convention file, harmless if a tool ignores it."
+    },
+    "progress_md_format": {
+      "rules": [
+        "Rewrite the top 'Current status' and 'Next steps' sections each session; append to 'Session log' and 'Decisions' (never delete old entries).",
+        "Keep it under 200 lines; summarise old log entries if it grows.",
+        "Be exact: file paths, class names, what compiles, what is tested, what is broken."
+      ],
+      "template": [
+        "# PROGRESS",
+        "## Current status",
+        "- Last updated: <date and time>, by <tool name>",
+        "- Build: <assembleDebug pass/fail>; Tests: <N passed / M failed>",
+        "- Overall: <one line, for example 'Steps 1-4 done, UI not started'>",
+        "## Step checklist (from build_order)",
+        "- [x] or [ ] for each step number and title",
+        "## Next steps (do these next, in order)",
+        "1. ...",
+        "## Known issues / unfinished",
+        "- ...",
+        "## Key decisions and assumptions",
+        "- <decision> - <reason> - <date>",
+        "## File map",
+        "- <path>: <one-line purpose>   (every source file, grouped by package)",
+        "## Session log",
+        "- <date> <tool>: <what was done, what was left half-done>"
+      ]
+    },
+    "when_to_update": [
+      "After every completed build step.",
+      "Before starting any large step, write the plan in 'Next steps'.",
+      "Immediately when the tool notices it is running low on budget or context: stop starting new work, make the project compile if possible, commit, and write PROGRESS.md so the next tool can continue.",
+      "Never leave the project in a non-compiling state without recording exactly where and why in 'Known issues / unfinished'."
+    ],
+    "resume_rules_for_any_tool": [
+      "Read docs/SPEC.json, then docs/PROGRESS.md, then AGENTS.md, then list the file tree.",
+      "Run ./gradlew assembleDebug and testDebugUnitTest to learn the real state before changing anything.",
+      "Continue from 'Next steps'. Do not redo finished steps, rename existing packages or classes, or reorganise the architecture.",
+      "Match existing code style and naming.",
+      "If PROGRESS.md and the code disagree, trust the code, fix PROGRESS.md, and note it in the session log."
+    ],
+    "resume_prompt": "You are continuing an existing Android project (Kotlin, Jetpack Compose) that another AI coding tool started. Do NOT start over. Step 1: read docs/SPEC.json (the full requirements) and docs/PROGRESS.md (what is done, what is next, decisions, file map) and AGENTS.md in the project folder. Step 2: look at the file tree, then run ./gradlew assembleDebug and ./gradlew testDebugUnitTest to learn the real current state. Step 3: continue from the 'Next steps' in docs/PROGRESS.md, following the spec and the existing architecture, package names and code style exactly. Do not rename or reorganise existing code, do not add dependencies or features outside the spec. Step 4: after every finished step, commit and update docs/PROGRESS.md (status, next steps, decisions, file map, session log). If you are about to run out of budget, stop, make the project compile, commit, and write PROGRESS.md so the next tool can continue. Start by telling me in 5 lines what is done and what you will do next.",
+    "resume_prompt_usage": "The user pastes only the resume_prompt text into the new tool, with the project folder (the same files, copied or opened from the same git repo) available to it."
+  },
+  "build_order": [
+    "1. Create the project, Gradle config, theme, manifest settings; create docs/SPEC.json, docs/PROGRESS.md, AGENTS.md; git init and first commit.",
+    "2. core.model and core.config.",
+    "3. core.analysis (ChemistryDetector, BatteryAnalyzer, RtlCalculator, GeoMath, FlightClock, CellVoltageCurve) with unit tests.",
+    "4. core.alert AlertEngine with unit tests.",
+    "5. core.transport (interface, SimulatorTransport, TransportFactory) and core.telemetry TelemetryRepository with tests.",
+    "6. ViewModel and UiState mapper.",
+    "7. UI: theme, BatteryRing, status bar, hero metrics, cell panel, footer metrics.",
+    "8. Alert banners, modals, border pulse, simulator sheet, previews.",
+    "9. Docs (TRANSPORTS_DAY2.md, DAY2_PLAN.md, README.md), final checklist, final PROGRESS.md update."
+  ],
+  "battery_profiles": {
+    "why": "Exodia said to build against DJI's latest agriculture drone features, or a normal agri drone's. The exact aircraft and battery are not confirmed. So all battery facts live in swappable profiles, and Day 2 replaces the active profile when Exodia's exact details arrive.",
+    "file": "core/config/BatteryProfiles.kt",
+    "model": "data class BatteryProfile(id: String, label: String, cellCount: Int, chemistry: BatteryChemistry, capacityMah: Int, nominalPackVoltageV: Float, packCount: Int = 1, source: String, confirmed: Boolean = false). Add object BatteryProfiles { val all: List<BatteryProfile>; val default: BatteryProfile; fun byId(id: String): BatteryProfile }.",
+    "profiles": [
+      {
+        "id": "AGRAS_T55_DB1580",
+        "label": "Agras-class 30 Ah (default)",
+        "cellCount": 14,
+        "chemistry": "LI_ION",
+        "capacityMah": 30000,
+        "nominalPackVoltageV": 52.0,
+        "packCount": 1,
+        "source": "DJI Agras T55 DB1580 battery: 30000 mAh, 52 V nominal (https://ag.dji.com/t55/specs). Same class as the T50 DB1560: 30000 mAh, 52.22 V (https://ag.dji.com/t50/specs).",
+        "confirmed": false
+      },
+      {
+        "id": "AGRAS_T55_DB1050",
+        "label": "Agras-class 20 Ah",
+        "cellCount": 14,
+        "chemistry": "LI_ION",
+        "capacityMah": 20000,
+        "nominalPackVoltageV": 52.5,
+        "packCount": 1,
+        "source": "DJI Agras T55 DB1050: 20000 mAh, 52.5 V per a dealer listing (https://agronix.ua/en/drones/agras-t55); confirm against https://ag.dji.com/t55/specs.",
+        "confirmed": false
+      },
+      {
+        "id": "AGRAS_T100_DB2160",
+        "label": "Agras-class 41 Ah",
+        "cellCount": 14,
+        "chemistry": "LI_ION",
+        "capacityMah": 41000,
+        "nominalPackVoltageV": 52.0,
+        "packCount": 1,
+        "source": "DJI Agras T100 DB2160: 41000 mAh, 52 V nominal, Li-ion (https://ag.dji.com/t100/specs, https://dl.djicdn.com/downloads/t70_t100/20251106/T100_User_Manual_v1.0_en.pdf). The T100 dual-battery system uses two intelligent batteries.",
+        "confirmed": false
+      },
+      {
+        "id": "GENERIC_14S_LIPO_22000",
+        "label": "Generic 14S LiPo (fallback)",
+        "cellCount": 14,
+        "chemistry": "LIPO",
+        "capacityMah": 22000,
+        "nominalPackVoltageV": 51.8,
+        "packCount": 1,
+        "source": "Generic assumption, not DJI.",
+        "confirmed": false
+      }
+    ],
+    "notes": [
+      "14S is INFERRED: DJI publishes nominal pack voltage (about 52 V), not the cell count. 52 V divided by about 3.7 V per cell is 14 cells, and DJI's charger output range (42 to 59.92 V on the T50 generator) fits 14 cells. Mark cellCount as inferred in code comments. Extra support: the DJI Agras T50 manual sets a critical low-voltage warning at pack voltage 47.6 V, which is exactly 14 cells x 3.40 V (https://www.bruksanvisningpdf.no/dji/agras-t50/bruksanvisning?p=87). Still an inference for the exact aircraft.",
+      "Capacity and nominal voltage are from DJI spec pages for T50, T55 and T100 batteries; they are approximations for the unknown exact model.",
+      "FRD cell thresholds (3.65, 3.50, 3.40 V) are kept exactly as the FRD states. They look LiPo-oriented; DJI Li-ion packs may use different safe limits. Keep them in AppConfig and add a comment 'FRD values; confirm they suit the actual battery chemistry'.",
+      "The default profile is chosen by AppConfig.batteryProfileId. Day 2 must be able to switch it (settings screen) or add a new profile without touching analysis, alert or UI code. Analysis and simulator read capacity, cell count and chemistry ONLY from the active BatteryProfile.",
+      "Dual intelligent batteries (T100 dual system): Day 1 shows ONE combined pack. BatteryFrame has a batteryId: Int = 0 field so Day 2 can feed two packs. Day 2 decides whether to show them as one combined pack (capacities add when in parallel) or as two packs; record the options in docs/DAY2_PLAN.md. Do not build dual-pack UI in Day 1.",
+      "DJI smart-battery telemetry: DJI smart batteries report their own cell voltages, current, temperature, cycle count and health through DJI's own system. The Day 1 BatteryFrame already carries per-cell voltage, pack voltage, current, consumed mAh, temperature and remaining percent. Add optional fields cycleCount: Int? and healthPercent: Int? to BatteryFrame (null in Day 1, never displayed in Day 1)."
+    ],
+    "protocol_uncertainty": "The FRD says the app parses MAVLink from a Skydroid G20 and GR01. A DJI Agras uses DJI's own link and remote controller, and public DJI SDK documentation found does not list Agras models for third-party apps. How battery data reaches an app on the user's hardware is therefore UNVERIFIED. Day 1 must not depend on it: all data enters through TelemetryTransport. Day 2 builds whichever transport Exodia confirms (MAVLink, or a DJI-specific route). Record this in docs/TRANSPORTS_DAY2.md."
+  }
+}
