@@ -44,5 +44,5 @@
 - 2026-10-06 Codex: initialized required handoff files and began a new Android project.
 - 2026-10-06 Codex: implemented Day 1 project, then verified `assembleDebug` and `testDebugUnitTest` (10/10 passing).
 - 2026-10-07 Codex: made cell tiles static; constrained the hero percent using `HeroNumberLayout`; corrected ring-zone geometry with a single clockwise scale. `assembleDebug` and 13 unit tests pass. CRITICAL_RTL scenario issue remains open.
+- 2026-10-07 Codex: removed the normal-state weakest-cell outline that appeared to move with simulator noise; healthy tiles are visually static and the cell index is centred. Orange remains reserved for warning-voltage and cell-delta-fault tiles.
 - 2026-10-07 Codex: Added comprehensive production README with architecture diagrams, badges, and documentation links. Set up git remote and branch for origin main push.
-
