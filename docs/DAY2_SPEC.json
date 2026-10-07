@@ -1,0 +1,663 @@
+{
+  "prompt_name": "Exodia Battery Alert - Day 2 Existing-Project Implementation",
+  "version": "day2-v1",
+  "how_to_use": "Paste this entire JSON into the coding tool with the existing Day 1 project folder open. This is an implementation instruction, not application runtime configuration. Extend the project on disk. Do not create a second app, rebuild the design, or stop after producing a plan. Work in the ordered steps below and leave resumable progress if the session ends.",
+  "role": "Senior Android/Kotlin engineer. Implement a working, testable monitoring app with honest hardware limitations. Prefer small changes, explicit units and deterministic tests. Do not call a simulation result a hardware result.",
+  "priority_order": [
+    "Preserve the existing working project and user-approved in-place dashboard.",
+    "Fix the broken CRITICAL_RTL simulation before adding hardware integration.",
+    "Implement every FRD calculation, trigger, audio output, logging and serial candidate path.",
+    "Keep commands to real aircraft disabled unless the precise vendor mapping and bench validation exist.",
+    "Produce reproducible builds, tests, APK if build tools work, and submission documentation without false PASS claims."
+  ],
+  "first_actions": [
+    "Read AGENTS.md, docs/SPEC.json, docs/PROGRESS.md, docs/DAY2_PLAN.md, docs/TRANSPORTS_DAY2.md and the original company FRD if present. Locate the actual classes by role, not guessed filenames. Read the patched ring and hero implementation before changing it.",
+    "Inspect git status and existing edits. Do not discard user work, reset history, delete files indiscriminately or overwrite unrelated changes. Create a small branch or checkpoint if permitted by the local workflow.",
+    "Precedence: this Day 2 prompt replaces Day 1 scope prohibitions on real transports/audio/logging and replaces the Day 1 first-position home/current-only flight timer rules. Later user-approved UI patches remain authoritative. Keep the original FRD traceable. Do not apply obsolete Day 1 do-not instructions to Day 2 features; preserve all unrelated Day 1 behavior.",
+    "Run the existing Gradle wrapper tasks for unit tests and assembleDebug. Record exact baseline failures. Diagnose project failures, do not silently upgrade Kotlin/Compose/AGP or replace the architecture.",
+    "Save this prompt as docs/DAY2_SPEC.json and link it from AGENTS.md. Retain docs/SPEC.json as the Day 1 baseline; update it only through explicit documented amendments. Save the original FRD text or provided PDF under docs if already available.",
+    "Create docs/FRD_TRACEABILITY.md with every requirement below and the alert matrix. Tag baseline vs implemented vs tested vs hardware-unverified separately. A stub interface or README is not an implemented feature.",
+    "If actual code differs from this recovered Day 1 design, adapt the existing equivalents rather than duplicate them. Record the difference and continue unless the conflict affects safety, then disable only that affected hardware feature and explain it."
+  ],
+  "day1_contract_to_preserve": {
+    "app": "com.exodia.batteryalert; Kotlin + Jetpack Compose; custom dark theme, not a Material3 redesign; MVVM with immutable StateFlow; existing Gradle wrapper/version catalog/JVM target preserved; Android 13 G20, landscape 7-inch, single monitoring screen, immersive mode and keep-screen-on while monitoring.",
+    "packages": "Keep core.model, core.transport, core.telemetry, core.analysis, core.alert, core.config and ui.*. core.* must not import android.*, Compose or Android lifecycle APIs. Add platform.transport, platform.service, platform.audio, platform.logging, platform.storage for Android-specific adapters. The pure transport interfaces, normalization and protocol decoder contracts can remain in core.transport; concrete UsbManager/Service/TTS/serial permission implementations live in platform.*. If an existing Android adapter lives in core, make the smallest relocation and fix imports.",
+    "transport": "TelemetryTransport exposes Flow<TelemetryFrame>, StateFlow<ConnectionState>, start(), stop(). TransportFactory selection is driven by one configuration value. Raw MAVLink messages remain private to transport/codec adapters, never reach analysis, repository, ViewModel or Compose.",
+    "profiles": [
+      {
+        "id": "AGRAS_T55_DB1580",
+        "cellCount": 14,
+        "chemistry": "LI_ION",
+        "capacityMah": 30000,
+        "confirmed": false
+      },
+      {
+        "id": "AGRAS_T55_DB1050",
+        "cellCount": 14,
+        "chemistry": "LI_ION",
+        "capacityMah": 20000,
+        "confirmed": false
+      },
+      {
+        "id": "AGRAS_T100_DB2160",
+        "cellCount": 14,
+        "chemistry": "LI_ION",
+        "capacityMah": 41000,
+        "confirmed": false
+      },
+      {
+        "id": "GENERIC_14S_LIPO_22000",
+        "cellCount": 14,
+        "chemistry": "LIPO",
+        "capacityMah": 22000,
+        "confirmed": false
+      }
+    ],
+    "profile_rule": "These are recovered Day 1 identifiers and provisional demo assumptions, not newly verified hardware specifications. Preserve existing profile metadata and confirmed=false. Do not announce a DJI model is connected from the selected profile. Multiple packs need an explicit SERIES/PARALLEL/INDEPENDENT topology; never double capacity or sum voltage without it.",
+    "demo_defaults": "Default profile AGRAS_T55_DB1580. 5 Hz simulator, nine original scenarios, x1/x5/x20. Demo currents 90 A hover / 140 A spray / 110 A return are simulation values, not vendor facts. Ri default 0.002 ohm per cell. Existing shared voltage curve remains an approximation, labelled estimated.",
+    "ui": "Keep dark slate + Inter/custom existing typography; icon-only top telemetry bar with elapsed flight time, HOME distance, RETURN ETA; 270-degree ring; measured per-cell tiles; no tile scanning/blinking/decorative animations. Weakest cell gets a neutral thin outline; orange only for a relevant delta fault or <=3.65 V.",
+    "ring": "Keep one angleFor(percent)=startAngle+2.7*percent, 0% lower-left to 100% lower-right clockwise. Green fill starts at 0 and ends at current percent. Red zone 0..20; yellow 20..requiredPercent only when requiredPercent>20. Zones on a separate thin 6 dp outer band; RTL tick at requiredPercent, clamped for rendering only. Any active alert removes green fill, retaining track/zones/tick. Percent + small sign + label must fit inside ring with clear padding for 0..100 and supported font scales.",
+    "alerts": "Default IN_PLACE: dashboard remains visible; hero 14% severity tint + 2 dp border, live percent recoloured, severity pill, RETURN IN / TIME LEFT metrics, LOWEST CELL / DELTA for voltage faults. No alert dismissal button. Critical and Emergency clear only after condition clears. Link loss uses TELEMETRY LOST, dims stale values, never displays old telemetry as live."
+  },
+  "frd_source_of_truth": {
+    "source": "Company Functional Requirements Document: Battery Alert System for Agricultural Drone; target Skydroid G20 Android 13, GR01 receiver. Requirements below recovered from the original PDF text, not inferred from app screenshots.",
+    "requirements": {
+      "FR-1.1": "Establish serial connection to internal telemetry via USB-UART or /dev/ttySx.",
+      "FR-1.2": "Parse BATTERY_STATUS (cells, total voltage, current, remaining capacity, temperature), SYS_STATUS, GLOBAL_POSITION_INT.",
+      "FR-1.3": "Auto-detect chemistry and cell configuration (6S/12S/14S) based on initial baseline voltage readings.",
+      "FR-2.1": "Vrest = Vmeasured + I * Ri under motor load.",
+      "FR-2.2": "Delta = Vmax - Vmin; immediate cell fault for delta > 0.08 V.",
+      "FR-2.3": "Track mAh/min and estimate remaining operational flight time under present load.",
+      "FR-3.1": "Required percent = (distance home metres / cruising speed metres per second) * discharge percent per second + 15 percentage points.",
+      "FR-3.2": "Un-dismissable critical RTL recommendation below required percent; alert matrix also uses <=, therefore implement <= at equality and test it.",
+      "FR-5.1": "Option to automatically shut spraying pump off at 20% to conserve flight power.",
+      "FR-5.2": "Periodic TTS battery status, nominally every 60 seconds.",
+      "FR-5.3": "Continuous battery telemetry curves, current and temperature mapped to GPS for post-flight diagnostics."
+    },
+    "alert_matrix": [
+      {
+        "level": "NOTICE",
+        "trigger": "remainingPercent <= 30",
+        "literal_visual": "yellow banner on top bar",
+        "outputs": "single chime + short vibration",
+        "action": "Plan to return soon"
+      },
+      {
+        "level": "WARNING",
+        "trigger": "remainingPercent <= 20 OR any measured cell <= 3.65 V",
+        "literal_visual": "amber overlay + pulsing border",
+        "outputs": "repeated voice alert",
+        "action": "Warning, low battery"
+      },
+      {
+        "level": "CRITICAL",
+        "trigger": "remainingPercent <= dynamic RTL requiredPercent OR any measured cell <= 3.50 V",
+        "literal_visual": "full-screen red modal",
+        "outputs": "continuous high-pitch siren + maximum supported vibration",
+        "action": "Mandatory RTL recommended!"
+      },
+      {
+        "level": "EMERGENCY",
+        "trigger": "any measured cell <= 3.40 V OR rapid voltage sag",
+        "literal_visual": "flashing red screen",
+        "outputs": "continuous repeated voice command",
+        "action": "Land immediately"
+      },
+      {
+        "level": "CELL_FAULT",
+        "trigger": "measured cell delta > 0.08 V",
+        "literal_visual": "orange overlay",
+        "outputs": "voice alert",
+        "action": "Cell voltage imbalance - land & inspect battery"
+      }
+    ],
+    "conflicts_and_limits": [
+      "User chose in-place warnings after screen takeover made the dashboard unusable. Preserve IN_PLACE as default. Implement an opt-in FULLSCREEN_FRD presentation for literal FRD visuals and document the visual difference in the submission. Do not secretly change the default.",
+      "Voltage alone cannot uniquely prove chemistry or cell count at every state of charge. Implement evidence-ranked detection and explicit uncertainty, not a guaranteed chemistry guess. Prefer telemetry chemistry/type and explicit cell readings. Baseline inference must remain labelled estimated.",
+      "Company mentioned DJI agriculture features, but a DJI-style battery profile/UI does not establish MAVLink compatibility. No DJI SDK integration or proprietary protocol claim is in scope without confirmed support. FRD Skydroid + MAVLink remains the interface target.",
+      "Actual G20 serial node, baud, USB VID/PID, firmware permissions, vendor SDK, MAVLink dialect, pump command, pack model/topology and signing policy are not supplied. Build candidate implementations/configuration and tests, but mark physical integration and automatic pump control unverified until bench tested.",
+      "Rapid-sag numbers, Ri, speed, capacity, alarm repetition and stale-field times are proposed engineering defaults, not company-prescribed thresholds. Put them in config and documentation. Preserve the FRD fixed cell voltage thresholds even for provisional Li-ion profiles, with an explicit calibration warning."
+    ]
+  },
+  "architecture_day2": {
+    "ownership": "One TelemetryService/repository instance owns transport, reducer, analysis, alarm scheduler and logger for a monitoring session. Activity observes service state; rotating/reopening the UI must not start a second transport or restart flight history. Pure core uses injected monotonic Clock, wall clock for log metadata, and coroutines dispatcher.",
+    "ports": [
+      "TelemetryTransport remains source-swappable. Extend TelemetryFrame with normalized Heartbeat/VehicleState, Home, BatteryMetadata, and CommandResult events where needed. Keep a separate TelemetryCommandPort for outbound commands; an inbound stream must not imply write permission.",
+      "AlertOutput contracts extend existing interface if necessary: alert transition, periodic status, freshness transition, stop/release. One CompositeAlertOutput plus a coordinator controls Tone/TTS/Vibration implementations. No Android API in core.alert.",
+      "FlightLogSink accepts immutable snapshots/events; Android CsvBlackboxLogger implements it. PumpController exposes capabilities/status and requestOff. Simulator and hardware command adapters implement it separately.",
+      "ConfigRepository persists validated user configuration through Android DataStore or existing mechanism. Pure AppConfig contains typed values and validated enums, not Context or storage APIs."
+    ],
+    "data_model_amendments": [
+      "Replace unknown-as-zero shortcuts in live telemetry. Nullable currentA, remainingPercent, packVoltageV, temperatureC, consumption, cell list availability, position/home, arm state and metadata. Preserve simulator callers using migration defaults where safe, but live sources never manufacture zeros. BatteryAnalysis and UI carry nullable values plus source/age/confidence.",
+      "Key packs by vehicle systemId + componentId + batteryId. Carry receivedAtMonotonicMs, optional source timestamp, wall time, per-field updatedAtMs, source message, measured/estimated quality and connection generation. Cell readings retain indexes 1..14 and missing indexes; do not compact a gap into a shifted cell number.",
+      "BatteryFrame distinguishes perCellVoltages from aggregate-only pack voltage. Voltage-only estimation cannot create measured cells. BatteryMetadata: optional chemistry, capacityMah, cycleCount, healthPercent, manufacturer/model, fault bits; unknown stays null.",
+      "VehicleState has selected vehicle id, optional armed flag, heartbeat freshness. HomeFrame has coordinates and source (AUTOPILOT_HOME, SIMULATOR_HOME, USER_CONFIRMED_FALLBACK); record home validity. CommandResult has command/mapping identity, target, timestamp and ACK outcome.",
+      "MonitorState contains all per-pack analysis, controlling safety pack/reason, independent cell-fault/link-data-fault flags, RtlAssessment, session/flight clock, logger status, interlock status, transport diagnostics and single UI state."
+    ]
+  },
+  "configuration": {
+    "single_switch": "TransportKind = SIMULATOR | UDP | INTERNAL_SERIAL | USB_SERIAL | REPLAY. Default remains SIMULATOR so the app can be demonstrated without hardware. Switching source is an explicit stopped-session action, never silent live fallback to simulation.",
+    "groups": {
+      "TransportConfig": [
+        "UDP bind address/port, optional remote endpoint, remote-source allowlist; empty endpoint means receive-only. No G20 IP/port asserted as confirmed. 14550 may be a labelled generic MAVLink example, not a discovered device address.",
+        "Internal serial device path, baud, 8N1/flow control, bridge provider identity; defaults unset until supplied.",
+        "USB VID/PID/serial selector/port index, baud, data bits/parity/stop bits, permission handling. Disallow ambiguous multi-device auto-selection.",
+        "vehicle system/component selection, battery IDs, common dialect version, passiveTelemetry=true, allowCommands=false, signing verification policy, source-id conflict behavior."
+      ],
+      "BatteryConfig": [
+        "profileId, optional confirmed per-pack capacities/Ri/chemistry/cell count, topology, per-cell vs pack Ri semantics. Profile metadata remains confirmed=false until externally validated.",
+        "voltage curve id, baseline frames=5, baseline low current limit=5 A (proposed); never unlock stable pack config on each packet. Reset on explicit session/battery swap, not UI recreation.",
+        "For a live dual-pack system, if each pack current/capacity and electrical topology are not known, show unsupported combined endurance/RTL instead of choosing an optimistic current split. Selected-pack reported SoC and measured-voltage alerts remain available."
+      ],
+      "AnalysisConfig": [
+        "noticePercent=30; warningPercent=20; warningCellV=3.65; criticalCellV=3.50; emergencyCellV=3.40; cellDeltaFaultV=0.08; RTL safety margin=15 percentage points. These are FRD values.",
+        "Ri default=0.002 ohm/cell, cruise speed=5 m/s, consumption window=30 s, minimum history=10 s, minimum estimate rate=50 mAh/min are proposed defaults. Validate >0 capacity/speed, finite inputs, resistance >=0, thresholds ordering.",
+        "Rapid sag: measured average cell drop >0.15 V over <=2 s with current changing <10%; proposed rule. Require enough measured comparable samples and known current; do not fabricate zero-current evidence.",
+        "Connection timeout=3000 ms (proposed), battery field maxAge=3000 ms, position/home-source freshness policy and heartbeat timeout as separately named config. Explain permanent home fix does not need to arrive each position packet, but invalidated/new mission home must be handled.",
+        "Percent hysteresis=3 points, cell hysteresis=0.03 V, Notice/Warning escalation debounce=1500 ms, critical/emergency release=5000 ms; immediate Critical/Emergency/CellFault escalation. Delta clear threshold=0.06 V with 1500 ms stable clearing (proposed)."
+      ],
+      "OutputConfig": [
+        "TTS interval=60 s; warning repeat=10 s; emergency repeat after utterance plus 1 s; cell fault repeat=15 s; vibration patterns/tones/volume are proposed configurable defaults.",
+        "IN_PLACE default; FULLSCREEN_FRD opt-in; reducedMotion=true disables screen flashing but keeps persistent severity; document when literal flashing is reduced.",
+        "Audio enabled while monitoring; no manual silence for un-dismissable critical/emergency by default. System audio volume/DND remain OS-controlled, never pretend to bypass them."
+      ],
+      "LoggingConfig": [
+        "Logging enabled on session start, capture at normalized 5 Hz default with event timestamps; buffer/flush sizes, rotation/retention limits, free-space guard. Logs separate DEMO/REPLAY/LIVE; full-precision raw normalized values, not UI-rounded text."
+      ],
+      "PumpConfig": [
+        "autoCutoffEnabled=false on real transport by default; cutoffPercent=20; mapping UNCONFIGURED; safe OFF value, command kind and target/channel must come from vendor/autopilot configuration, not guessing.",
+        "Simulator may enable autoCutoff for demo visibly labelled SIMULATED. No ON/ARM/DISARM/RTL/LAND flight command from this app. Only a scoped pump-off operation after capability + mapping + deliberate opt-in."
+      ]
+    },
+    "ui_configuration": "Keep one monitoring screen. Add a compact Connection/Setup bottom sheet or modal reachable from a discreet control, not a new dashboard/navigation tree. Sections: source/endpoint, profile/calibration, audio/presentation, logging, interlock. Validate before Apply; transport changes stop old session first with confirmation if monitoring. Hide advanced controls unless expanded. Never offer a hardware auto-interlock toggle while mapping is unconfigured."
+  },
+  "mavlink_ingestion": {
+    "dependencies": "Start with io.dronefleet.mavlink:mavlink:1.1.11 as recovered/verified published coordinates. Inspect the resolved generated BatteryStatus API for voltagesExt and complete common message support before writing calls. For USB use com.github.mik3y:usb-serial-for-android:3.10.0 with its documented repository setup if resolvable. Keep versions in catalog. If the chosen MAVLink release lacks cells 11..14, use a reviewed current/generated common dialect or protocol adapter and document/pin it; never silently truncate 14S to 10S. Do not invent library APIs.",
+    "codec": "Use a real MAVLink 1/2 parser with CRC_EXTRA validation, resynchronization after garbage, fragmented reads and concatenated packets. Support omitted/truncated MAVLink 2 extension bytes as zero. Distinguish signed vs unsigned; a checksum is not source authentication. If configured to require signatures, reject unverifiable/bad signatures and surface unsupported signing clearly. No hardcoded key. Decoder bounded memory and error counters; malformed data never crashes UI.",
+    "message_mapping": {
+      "BATTERY_STATUS": [
+        "id -> batteryId, type -> chemistry if known. temperature cdegC /100, INT16_MAX(32767) -> null. current_battery cA /100, -1 -> null. battery_remaining 0..100 accepted; -1/out-of-range -> null. current_consumed mAh, -1 -> null. time_remaining 0 means unavailable if used.",
+        "voltages[10] mV -> V; unused base slots UINT16_MAX(65535) are missing. voltages_ext[4] cells 11..14: 0 means unsupported; 1 encodes a measured approximately-zero cell, NOT a missing healthy cell. Preserve this as near-zero + measurement fault so it cannot disappear from safety analysis. Filter clearly corrupt impossible measurements separately, not weak/dead valid cells.",
+        "Handle aggregate-only form: first slot holds total pack voltage, others UINT16_MAX; a pack >65534 mV can be split across slots using 65534 continuations. Recognize representation before interpreting as cells. Never call a 52 V aggregate value one cell, never call continuation slots individual cells.",
+        "Per-cell available case: sum valid measured cells only when coverage is complete for identified pack; partial sum is not full pack voltage. If aggregate-only, cell delta/lowest-cell are unavailable. Preserve explicit missing slots, field ages and source identity."
+      ],
+      "SYS_STATUS": "voltage_battery mV/1000 (65535 unknown), current_battery cA/100 (-1 unknown), battery_remaining (-1 unknown). Use as fallback for the selected vehicle when specific BATTERY_STATUS values are absent/stale. Do not overwrite fresh per-pack data or assign vehicle-total current to each pack in a dual-pack system.",
+      "GLOBAL_POSITION_INT": "lat/lon /1e7 degrees, alt/relative_alt millimetres /1000 metres, vx/vy centimetres per second /100; groundSpeed=sqrt(vx^2+vy^2). Validate ranges/freshness and reject impossible data. Do not use position time_boot_ms as local wall time. Latitude/longitude zero are not inherently invalid but explicit invalid origin/default samples must not become home.",
+      "HEARTBEAT": "Discover/validate configured vehicle; base_mode armed bit from fresh selected autopilot heartbeat. Reject GCS/component heartbeats as flight-arm truth. Do not merge two vehicles because they are on the same UDP socket.",
+      "HOME_POSITION": "Use selected autopilot home lat/lon, retain until changed/new session with provenance. No automatic first-position home for live data. Optional explicit confirmed fallback while disarmed, visibly estimated, invalidated on new flight unless deliberately confirmed.",
+      "COMMAND_ACK": "Pump-only command outcome correlation by command + source/target + pending request context. Rejected/timeout/in-progress/accepted states are distinct. ACK accepted is command acceptance, not proof pump physically stopped; use feedback when available.",
+      "optional_metadata": "Decode supported verified BATTERY_INFO/dialect metadata if actually available in library/source. Cycle count and healthPercent require real supported fields/vendor data. No inferred cycle count or fake health percentage from delta; no placeholder 100% health. Record unsupported capability."
+    },
+    "freshness": "Connected means valid selected-source traffic, not socket opened or arbitrary bytes arrived. Track last valid selected vehicle packet, last battery update, position and heartbeat separately. A heartbeat alone must not keep dead battery telemetry looking live. Stale critical data inhibits new command and emits clear data-unavailable status. Preserve known dangerous battery alert with stale marker rather than silently clear it when the link drops.",
+    "outbound_default": "Read-only/passive. Optional GCS heartbeat/message-interval requests may exist behind a documented opt-in for known target; no uncontrolled broadcast or automatic PARAM_SET. No flight control command. Separate receive peer discovery from command target, do not write to the first unverified UDP sender."
+  },
+  "real_transports": {
+    "common": "All start/stop operations idempotent; one active IO job/connection per transport; Dispatchers.IO for blocking work, close sockets/file descriptors to unblock reads on stop. Bounded buffers, cancellation-safe cleanup, no main-thread IO, no busy-loop. Connection errors retain actionable cause, not a generic spinner. Reconnection bounded exponential backoff with jitter; no endless command retry.",
+    "UDP": [
+      "Implement DatagramSocket receive adapter feeding the same codec. Preserve sender endpoint and datagram boundaries; support multiple packets in datagram and split packet fixtures without concatenating different senders into one parser. Use bounded per-selected-peer stream/codec state.",
+      "Bind configurable local endpoint. Bind success shows listening, not telemetry connected. Report port-in-use/permission/no-valid-MAVLink separately. Explicitly choose allowed vehicle/peer before command use. UDP localhost fixture must work without actual drone."
+    ],
+    "USB_SERIAL": [
+      "Use UsbManager enumeration + usb-serial-for-android driver probing. Obtain explicit USB permission via PendingIntent following actual target-SDK mutability/receiver rules; handle denial, detach and port busy. Enumerate available devices in Setup sheet; if multiple plausible devices require a choice.",
+      "Open selected port, configure baud/8N1/flow control from config, run SerialInputOutputManager or documented library reader, feed same codec and close on detach/stop. Add USB host feature declaration and device filter only for known vendor IDs, not invented ones.",
+      "Reconnect after attach only within explicitly selected source/session intent; never silently select another device. Surface permission-required/unsupported driver/not present. Permission denial must not freeze simulator."
+    ],
+    "INTERNAL_SERIAL": [
+      "Provide a real bridge-backed SerialFileTransport, not a FileInputStream plus pretend baud setting. An Android /dev/ttySx link requires real termios setup and firmware access. Implement an isolated reviewed serial-port/JNI bridge (open/configure/read/write/close), or verified vendor SDK adapter if already supplied. Keep Android/native code outside pure core. Pin source/license and explain build setup.",
+      "Use configurable node/baud; validate only selected path and app access. No root request, chmod, su, invasive device modifications, scanning arbitrary devices or invented vendor calls. If firmware denies access, show ACCESS_DENIED and document that a vendor permission/SDK or USB route is required.",
+      "Do not claim physical serial success from a mocked stream. Unit-test adapter protocol/config and failure propagation; physical FR-1.1 remains hardware-unverified until actual serial bench evidence exists. If bridge dependency cannot compile, report precise build blocker and keep functioning USB candidate; do not conceal it behind success UI.",
+      "Internal-serial-only foreground service on newer target APIs must satisfy a legitimate documented FGS type/prerequisite; if it cannot, disclose background support blocked on that firmware/API instead of adding unrelated permission merely to pass a check. Android13 G20 remains the required tested target."
+    ],
+    "REPLAY": [
+      "Implement normalized JSONL replay and optionally actual supplied MAVLink .tlog replay if format parsed correctly. A .tlog may include framing timestamps; never feed the whole timestamp-prefixed file as raw MAVLink bytes.",
+      "No company log was provided. Commit clearly synthetic golden byte fixtures and a labelled demo recording, not a fabricated real flight. Replay uses fake/virtual clock, labels REPLAY, disables all real pump writes."
+    ]
+  },
+  "analysis_and_safety": {
+    "detection": [
+      "Use explicit measured cell slots as first evidence of cell count; account for 11..14 extension fields and missing data. Prefer telemetry chemistry then configured confirmed profile then estimated baseline candidates. A 4.1 V cell can be Li-ion or LiPo; never infer definite chemistry from overlap.",
+      "For aggregate-only baseline, enumerate supported candidate 6/12/14 counts using chemistry-compatible voltage ranges and stable low-load frames. If several fit, keep unknown/estimated and selected profile as provisional, requiring setup confirmation for safety control. Do not round total voltage/3.7 and present the answer as detected.",
+      "Configuration locks per pack/session only after stable evidence. Invalidate consumption/history on battery swap, counter reset or source change. Do not reset all history on ordinary UI updates or every link packet."
+    ],
+    "sag_compensation": [
+      "Calculate restCellV=measuredCellV+currentA*RiPerCell for discharge current with units checked. 100 A * 0.002 ohm adds 0.2 V per cell. Pack compensation uses packRi=N*RiPerCell for series cells, not one cell Ri against pack volts.",
+      "Unknown current/Ri yields rest unavailable or visibly uncorrected value; never invent compensation. For topology unknown, do not split vehicle-total current across packs.",
+      "FRD voltage alerts use actual measured cells. Compensation is an additional estimate for resting-voltage display/SoC fallback. Do not use compensated voltage to mask measured <=3.40 V emergency. Aggregate-derived cell average may support a labelled estimate/warning, never fake a lowest measured cell or delta."
+    ],
+    "consumption": [
+      "Prefer valid increasing current_consumed mAh history, compute slope over >=10 s within 30 s window. Detect rollover/reset/reorder and start fresh segment, never negative rate. Use receive monotonic time or validated coherent source intervals.",
+      "When consumed mAh missing but known discharge current, integrate trapezoidally: deltaMah = averageA * elapsedSeconds *1000/3600. Keep source=INTEGRATED_CURRENT, explicit estimate. Fresh battery swap resets accumulator. Charging/negative current does not give an optimistic negative discharge requirement.",
+      "Bootstrapping before enough history: use fresh current-derived rate=currentA*1000/60 mAh/min (label instantaneous estimate) rather than a permanent null RTL. Prefer rolling rate once established. If no trustworthy rate/capacity, show RTL unavailable, never safe/zero requirement.",
+      "remainingMah=capacityMah * remainingPercent/100; remainingMinutes=remainingMah / rateMahPerMin. No division by zero/NaN/infinity. UI may cap display at 99 min but logs/core preserve genuine finite value. SOC source explicit: reported, confirmed-coulomb, approximate-voltage."
+    ],
+    "rtl": [
+      "distanceToHome=haversine(selected valid position, valid home), horizontal metres; returnSeconds=distance/cruiseSpeed. Do not substitute transient ground speed (could be zero while hovering) for configured return cruise speed. No route/wind/terrain claim.",
+      "dischargePercentPerSec=rateMahPerMin/60/capacityMah*100; requiredPercent=returnSeconds*dischargePercentPerSec+15. Keep unrounded requirement for <= comparison. ceil only display. Required >100 stays >100 in model and shows RETURN NOT ASSURED; render tick capped at100, never treat clamped result as calculation.",
+      "ETA and remaining time carry confidence/source/age. Missing GPS/home/rate/capacity/speed produces unavailable reason, not 0m/0s or safe. Worst valid battery drives alert without inventing topology capacity."
+    ],
+    "alert_engine": [
+      "Pure evaluate(state,now) with fake-clock tests. Highest battery level wins EMERGENCY > CRITICAL > WARNING > NOTICE > NONE. CellFault independent and coexists; link/data fault independent too. Conditions/reasons kept per pack.",
+      "Critical and Emergency escalation immediate; FR-2.2 CellFault escalation immediate for a valid delta >0.08 (correct the Day 1 debounce conflict). Notice/Warning may debounce 1500ms. Strict delta >, voltage and percent <=, RTL <= at equality.",
+      "Apply hysteresis per reason, not just overall level. Critical/emergency release only after all relevant triggers clear with margins for continuous 5s of fresh valid evidence. Stale data is not proof of clear. Fault release uses named delta clear threshold.",
+      "Link loss dims metrics, speaks telemetry lost once per transition at configured cadence if needed, inhibits control; preserve a last-known critical state labelled stale. On reconnect refresh all required evidence before clearing. Repeated identical 5 Hz frames do not restart timers, repeat a chime or enqueue utterances.",
+      "No visual dismissal of critical/emergency, including outside-tap/back in literal presentation. Back/OS exit cannot trap the user, but must not clear service alert. No hidden dismiss semantics via old dismissible flag."
+    ]
+  },
+  "critical_rtl_simulator_fix": {
+    "root_cause_status": "Day 1 CRITICAL_RTL reportedly fails; actual cause must be confirmed from code. Leading candidates are consumption warm-up and home being set to jumped remote position. Fix architecture, not a hardcoded force-critical flag.",
+    "implementation": [
+      "Simulator emits explicit stable home before remote position and a known disarmed baseline/armed transition. Home is scenario-defined and never derived from the first remote sample. Reset scenario resets generation/home/history intentionally and reseeds in documented order.",
+      "Inject one scenario clock. At x5/x20, both simulated timestamps and current-consumption integration advance with same virtual dt; wall scheduling remains 5 Hz display cadence. Alert test clock clearly identifies virtual vs wall timing. Avoid multiplying drain but not estimator timestamps.",
+      "For CRITICAL_RTL use deterministic warm-up history of at least 10 virtual seconds or honest current-based bootstrap. If replaying history, do not emit old history out-of-order as live samples; seed the analysis through a supported test/scenario initialization or run warm-up timeline.",
+      "Golden 30,000 mAh fixture: current=110 A -> rate=1833.333 mAh/min -> 0.10185185 percent/sec. Distance=900 m, cruise=5 m/s -> return=180 s -> required=33.333333%; remaining=30% -> immediate Critical BELOW_DYNAMIC_RTL. Cells measured 3.80 V equal, delta<=0.02, so no low-cell or delta trigger. Assert true reasons contain RTL and exclude low-cell critical/emergency.",
+      "Boundary tests required-epsilon, exact-required, required+epsilon; above margin/hysteresis clears after5s fresh. At home distance0, requirement15%; 30% must not be critical solely for RTL.",
+      "Provide scenario diagnostics in developer panel/log (home source, distance, rate source, capacity, required percent, last valid times). Never add hardcoded scenario names inside production AlertEngine.",
+      "Keep all nine scenarios: NORMAL, FAST_DISCHARGE, NOTICE_30, WARNING_20, CRITICAL_RTL, LOW_CELL, EMERGENCY, CELL_IMBALANCE, LINK_LOST; map existing names if different. Tune fixtures so each intended trigger can be seen without unintended emergency masking it. Scenario switches cancel old jobs, reset state consistently, restore link after LinkLost."
+    ],
+    "other_day1_regressions": "Confirm patch2 is actually applied: no cell animations, ring zones not mirrored, percentage fit. Change only faults discovered; do not redesign app."
+  },
+  "audio_haptic_day2": {
+    "coordinator": "Implement one lifecycle-owned scheduler. Alert state changes cancel obsolete outputs immediately. Do not put while-loops in composables. Tone, TTS and vibrator release on Stop/service destroy and resume from current state only once.",
+    "levels": {
+      "NOTICE": "One short chime and short vibration on entry, not every telemetry update. Action text Plan to return soon.",
+      "WARNING": "TTS Warning, low battery on entry and every configured repeat while active; meaningful per-pack qualifier when needed. No queue growth.",
+      "CRITICAL": "Continuous high-pitch repeating siren + highest supported vibration pattern while active; speech Mandatory RTL recommended may be interleaved without suppressing sustained alarm indefinitely.",
+      "EMERGENCY": "Repeated Land immediately voice command, scheduling next after completion plus configured gap. Maximum urgency, no periodic battery readout interruption.",
+      "CELL_FAULT": "Voice Cell voltage imbalance - land and inspect battery. Independent fault message may run only between higher-priority utterances; emergency always wins.",
+      "LINK_LOST": "Telemetry lost notification, last-seen UI. Never read stale battery as a fresh periodic report."
+    },
+    "TTS": [
+      "Use Android TextToSpeech initialized asynchronously, locale fallback with explicit unavailable error. UtteranceProgressListener used for sequencing; release engine. A missing engine/language cannot silently count as PASS. Show Audio unavailable and keep visual/haptic outputs.",
+      "Every60s of valid monitoring: Battery 48 percent, cell average 3.82 volts using fresh known data. Omit unavailable average rather than speak NaN/0. Read selected/controlling pack clearly in dual-pack mode. Suppress periodic chatter during Critical/Emergency and fault priority speech.",
+      "Bound queue to current message, replace on escalation, deduplicate by alert generation. Reconnection must not replay all missed status announcements."
+    ],
+    "audio": [
+      "Generate siren/chime via ToneGenerator or short generated PCM/AudioTrack with documented alarm usage; no downloaded copyrighted audio. Request appropriate transient audio focus, respect OS DND/volume, recover on focus loss and expose limited-output status.",
+      "Do not force system volume, bypass DND or claim maximum sound output irrespective of user/device. Provide safe low-volume Test sound/vibration controls while disarmed/demo; they must stop promptly."
+    ],
+    "vibration": "Declare VIBRATE; use VibratorManager where available and fallback Vibrator. Detect hasVibrator/amplitude support, use maximum supported amplitude only for critical pattern, document if G20 lacks motor. No vibration implementation falsely labelled working on motorless device.",
+    "background": "Outputs owned by running monitoring service, not Activity; screen-off/reopen does not lose alert condition. Explain OS/user stopping service stops monitoring; do not promise impossible survival."
+  },
+  "foreground_service": {
+    "implementation": [
+      "TelemetryService started deliberately from visible Activity on Start monitoring. Declare exported=false and necessary FOREGROUND_SERVICE permission. For real device link use connectedDevice type; apply FOREGROUND_SERVICE_CONNECTED_DEVICE permission/runtime prerequisites for relevant newer target versions. Do not unnecessarily upgrade Day1 target/SDK.",
+      "Call startForeground promptly before IO initialization. Persistent notification shows selected source, monitoring state, last battery summary and Open app/Stop actions. Stop ends service/transport/output/logging intentionally and never claims the battery fault was fixed.",
+      "Android13 POST_NOTIFICATIONS request with rationale. Denial does not itself prohibit starting foreground service, but notification visibility differs; surface that limit and continue only according to OS rules. Do not gate telemetry solely on notification approval.",
+      "Validate actual target API FGS prerequisites: USB permission for USB link; documented network prerequisites for network use. Do not spoof connectedDevice eligibility for pure simulation. Demo can remain visible-activity scoped, with background-demo explicitly unsupported unless a justified lawful service type is implemented/tested.",
+      "Use Activity binding with StateFlow exposure; release bindings without killing an active real session. Wake lock only if justified and bounded to active monitoring, released on every exit; do not request location permission merely to read drone GPS over MAVLink.",
+      "No auto-arm, auto-start on boot, silent background launch, exact alarm polling or WorkManager used as an endless telemetry loop. Handle OS process death and recovery honestly. Default no automatic reissue of pump command after restart. Record interrupted session and require revalidation."
+    ],
+    "permissions": "INTERNET for UDP, VIBRATE, FOREGROUND_SERVICE, POST_NOTIFICATIONS on13; appropriate newer foreground-service permission for chosen type. USB feature/permission via UsbManager. No broad storage permission: app-scoped files and SAF. Use manifest permissions required by actual mechanisms only, with explanation in docs.",
+    "flight_clock": "Use selected fresh autopilot armed state: start on disarmed->armed, track monotonic duration, stop/freeze on confirmed disarm. Unknown/stale heartbeat shows timer source/uncertain status and never simulates a disarm. Simulator emits explicit armed state. Current>=5A fallback may remain only as explicitly estimated demo fallback, not authoritative live flight time."
+  },
+  "blackbox_logging": {
+    "files": "Create per-monitoring-session directory under app-scoped files (getExternalFilesDir or internal fallback). CSV telemetry + JSON session manifest + optional JSONL events. Unique session id, UTC ISO wall timestamps, monotonic elapsed ms, LIVE/SIMULATOR/REPLAY, profile/config snapshot, schema version, app version and provenance. No secrets/signing key recorded.",
+    "csv_columns": [
+      "session_id",
+      "source_mode",
+      "wall_time_utc",
+      "elapsed_ms",
+      "vehicle_system_id",
+      "component_id",
+      "battery_id",
+      "data_age_ms",
+      "connection_state",
+      "armed",
+      "home_source",
+      "pack_voltage_v",
+      "current_a",
+      "remaining_percent",
+      "soc_source",
+      "consumed_mah",
+      "consumption_mah_min",
+      "rate_source",
+      "minutes_remaining",
+      "temperature_c",
+      "cell_01_v..cell_14_v (individual columns)",
+      "measured_cell_count",
+      "cell_data_quality",
+      "min_cell_v",
+      "max_cell_v",
+      "cell_delta_v",
+      "rest_average_cell_v",
+      "lat_deg",
+      "lon_deg",
+      "alt_m",
+      "relative_alt_m",
+      "ground_speed_mps",
+      "position_age_ms",
+      "home_lat_deg",
+      "home_lon_deg",
+      "distance_home_m",
+      "return_seconds",
+      "rtl_required_percent",
+      "alert_level",
+      "alert_reasons",
+      "cell_fault",
+      "pump_status"
+    ],
+    "rules": [
+      "One row per pack snapshot at configured continuous cadence, including coordinates from independently freshest valid GPS with age. Missing fields blank; no fabricated GPS/health/0 current. Log stale/connection-gap events and alert/ACK transitions.",
+      "Use locale-independent decimal dot, escaped CSV text, header exactly matching values. Measured cell slots keep physical index. UI display rounding never alters log precision.",
+      "Buffered single IO writer, bounded channel, periodic flush and flush on close/background event. Define backlog behavior/drop count and surface logger failure; no unbounded RAM. Rotate with configured size/session cap; no automatic deletion of current session.",
+      "Handle storage full/unwritable media/file removal without crashing telemetry. Show LOGGING FAILED and exact cause, preserve alerting. Recover interrupted files safely, mark incomplete manifest.",
+      "Stop/finalize on user Stop or confirmed session end; do not lose final alert/event. Arm transitions mark flight segments even if logging started before arm.",
+      "Export latest session via SAF/CreateDocument or share chooser with FileProvider scoped URI. User explicitly chooses recipient/destination. No automatic cloud upload or email. Optional CSV preview + simple battery/current/temp vs elapsed chart generated from actual logged samples for diagnostics, within a modal so monitoring screen remains primary. Chart axes, units, gaps and source label visible; no smoothed invented curve."
+    ],
+    "required_validation": "Reopen written CSV with test parser; assert header/value widths,14 cell columns, UTC times, null handling, independent GPS ages, multiple battery rows, fault events and close flush. Submission demo includes a clearly labelled simulator log, not company flight data."
+  },
+  "spray_interlock": {
+    "capability_model": "InterlockState DISABLED | SIMULATION_READY | UNCONFIGURED | READY | OFF_REQUESTED | ACK_ACCEPTED_UNCONFIRMED | CONFIRMED_OFF | REJECTED | TIMED_OUT | INHIBITED. Recommendation-only mode is not automatic hardware control.",
+    "rules": [
+      "Default real commands off. Require mapped vendor/autopilot command, known target and calibrated trustworthy battery source, valid fresh link, user enabled hardware interlock after explicit warning, and bench validation flag with documentation before READY. The app does not assume MAV_CMD_DO_SET_SERVO or relay channel is the pump.",
+      "Provide a generic reviewed command adapter for supported vendor mapping (servo-off value/relay-off index/custom command only once exact mapping supplied). Mapping input allowed, but no default channel or PWM. Unsupported vendor mapping shows UNCONFIGURED. Commands typed, allowlisted pump-off only. No flight-control forwarding.",
+      "Trigger when controlling relevant battery percent <=20, including first valid below-threshold sample after opt-in, not just exact20 or crossing from above. Critical/Emergency does not suppress an eligible pump-off, but telemetry/command trust restrictions still hold.",
+      "Send once per validated flight/session/cutoff latch, with bounded configured ACK deadline. No repeated writes at5Hz; retry only if mapping makes OFF idempotent and explicit policy permits, otherwise report timeout. Handle rejection/in-progress/source mismatch; correlate ACK correctly.",
+      "Physical off verified by actual configured feedback if available. ACK alone is accepted-unconfirmed, not confirmed-off. UI says Pump stop requested / Pump off confirmed / Auto cutoff unavailable as appropriate. Log command and feedback events.",
+      "Never automatically turn pump back on after battery recovery, reconnection, scenario change or service restart. Re-arm cutoff latch only on deliberate new-session conditions. Manual physical controls remain authoritative.",
+      "Simulator models pumpRunning flag, transitions OFF at<=20, reduces simulated spray load toward return/hover current, exposes SIMULATED OFF and logs event. UI demo interlock exercises same policy through SimulatorPumpController without real writes.",
+      "Unconfigured live mode prominently gives Spray cutoff recommended at20 and explains automatic control unavailable. FR-5.1 hardware PASS must remain blocked until vendor mapping + bench success; a mock is not full physical compliance."
+    ],
+    "bench_safety": "No propellers, no armed aircraft, safe contained pump setup, correct vendor/operator supervision. Document required evidence and never ask this coding tool to fly a drone or discover actuator mapping by trial-and-error."
+  },
+  "ui_day2": {
+    "keep_primary": "No graphs/tables/settings dumped onto dashboard. Maintain hierarchy: big battery percent, top flight/home/return metrics, short key pack/current/temp/time-left metrics, static cells. Small source/profile/estimated indicator and log/interlock status only. Dash for unknown, explicit stale age, never fake zeros.",
+    "dual_pack": "When actual two packs present, show compact A/B identity/SoC row and selectable pack detail in same screen; controlling lowest-margin pack identified. Hero defaults to controlling safety pack, user inspection must not hide its alert. Only show cycle count/health if real metadata exists. Do not average a dying pack into a healthy combined percent.",
+    "in_place": "Preserve PLAN TO RETURN / LOW BATTERY / RETURN NOW / LAND NOW / CELL FAULT / TELEMETRY LOST. RETURN IN and TIME LEFT during alert; voltage reasons add LOWEST CELL/DELTA. Hide duplicate top return chip when hero already shows it. Emergency dominates but cell fault remains small secondary chip. No dismiss controls.",
+    "literal_mode": "FULLSCREEN_FRD opt-in: Notice yellow top banner; Warning amber overlay/pulsing border; Critical red full-screen modal showing live percent, reason and RETURN IN with no dismissal; Emergency red flashing background plus Land immediately; Cell fault orange overlay. Maintain live essential telemetry within these overlays, not a blank screen. Back closes setup, not alert. System Back can still leave Activity without falsely clearing service state.",
+    "accessibility": "Pulse/flash slow and bounded (never faster than2Hz); support reduced motion/static alert and document intentional visual accommodation. Respect font scale with bounded measured hero layout, contrast and TalkBack labels for icon-only controls. Battery severity conveyed by text, not color alone.",
+    "visual_checks": "Capture actual app screenshots in landscape approx G20 1280x800 and smaller landscape. Inspect pixels for clipping,100% overlap, cell14 visible, outer zone band padding, non-mirrored zones, live metrics during alerts. Screenshots for normal100/50/9/0, every severity, dual-pack, link lost, setup and literal mode. Preview alone insufficient for final readiness if emulator/device available; if unavailable state it, do not fabricate."
+  },
+  "build_order": [
+    {
+      "step_id": "01",
+      "title": "Recover and baseline",
+      "work": "Read project/handoff/FRD, baseline build/tests, save Day2 spec and traceability. Preserve dirty changes.",
+      "exit_gate": "Existing app still starts; baseline errors recorded; no design replaced.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "02",
+      "title": "Fix simulator and data contracts",
+      "work": "Add normalized home/arm/quality/nullability contracts, deterministic time; fix CRITICAL_RTL and verify earlier visual patches.",
+      "exit_gate": "Golden900m/110A/30Ah fixture ->33.333% requirement and Critical at30%; all nine scenarios reachable at x1/x5/x20.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "03",
+      "title": "Harden analysis and alerts",
+      "work": "Implement truthful detection, unknown values, measured thresholds, compensation, consumption/bootstrap, freshness, hysteresis, per-pack safety.",
+      "exit_gate": "All pure boundary tests pass, immediate delta fault, unknown cannot become safe.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "04",
+      "title": "MAVLink decoder and fixtures",
+      "work": "Resolve/pin library API; implement message mapping, CRC and14S ext support, source selection, home/heartbeat metadata.",
+      "exit_gate": "Golden encoded MAVLink1/2 fixtures pass; corruption rejected; missing fields stay null.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "05",
+      "title": "UDP integration",
+      "work": "Connect real DatagramSocket to shared codec, selected peer/vehicle filtering and cancel-safe lifecycle.",
+      "exit_gate": "Loopback sends encoded packets -> real repository analysis; no fake Connected on bind.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "06",
+      "title": "USB-UART integration",
+      "work": "Implement UsbManager permission/driver selection/port reader/detach behavior with real library adapter.",
+      "exit_gate": "Compiles and simulated contract tests pass; actual USB bench remains NOT_TESTED unless performed.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "07",
+      "title": "Internal serial integration",
+      "work": "Implement isolated actual serial bridge + configuration/error mapping; document firmware access limits.",
+      "exit_gate": "Bridge builds/configures selected path via real termios or verified SDK; denied/missing path honest; physical G20 NOT_TESTED unless tested.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "08",
+      "title": "Service and flight session",
+      "work": "Move single repository ownership into real monitoring service, binding/notification/permission flow, arm timer.",
+      "exit_gate": "One transport across reopen/rotation; stop cleans IO; Android13 denial/background tests recorded.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "09",
+      "title": "Alarm outputs",
+      "work": "Implement tone/vibration/TTS coordinator and periodic status with priority/cancellation and availability checks.",
+      "exit_gate": "Output fakes prove scheduling; actual sounds/haptics checked when device supports them.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "10",
+      "title": "Blackbox recorder/export",
+      "work": "Implement bounded CSV logger/manifests/event writer, continuousGPS-mapped records, SAF export and optional small diagnostics viewer.",
+      "exit_gate": "Readback widths/nulls/cells/timestamps pass; storage failure does not disable alerting.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "11",
+      "title": "Spray interlock",
+      "work": "Implement simulator cutoff and real allowlisted mapping/capabilities/ACK policy, default command disabled.",
+      "exit_gate": "Simulator pump off once at<=20; unknown/stale/unmapped real never writes; hardware claim blocked until bench evidence.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "12",
+      "title": "Setup, dual-pack and literal FRD option",
+      "work": "Add compact setup sheet, truthful metadata/pack choice, opt-in FULLSCREEN_FRD while preserving IN_PLACE default.",
+      "exit_gate": "All matrix states retain live metrics; critical cannot dismiss; unknown health hidden; no visual regressions.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "13",
+      "title": "Replay and integration demos",
+      "work": "Add synthetic byte fixture sender/replay and deterministic end-to-end scenarios, labelled logs.",
+      "exit_gate": "MAVLink fixture->transport->repository->alert/output/log demonstrated, not only direct domain injection.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "14",
+      "title": "Regression and visual verification",
+      "work": "Run full tests/lint/build, instrumented checks and actual landscape screenshots; fix findings.",
+      "exit_gate": "Exact results captured; unavailable SDK/device marked BLOCKED/NOT_TESTED not PASS.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    },
+    {
+      "step_id": "15",
+      "title": "Submission packaging",
+      "work": "Produce APK if build succeeds, docs/checklist/demo steps, clean handoff and final short report.",
+      "exit_gate": "FRD matrix distinguishes software/physical states; all remaining restrictions disclosed.",
+      "after_step": "Update docs/PROGRESS.md; run focused tests; commit coherent step when permitted. Continue to next incomplete step."
+    }
+  ],
+  "unit_tests_required": {
+    "parsing_and_normalization": [
+      "MAVLink1 BATTERY_STATUS + SYS_STATUS + GLOBAL_POSITION_INT and MAVLink2 6/12/14S with extension slots; valid14 cells retain index11..14.",
+      "Base65535 and ext0 missing; ext1 retained near-zero; aggregate52V only -> no measured cells/delta; aggregate split65534+remainder; partial cells not summed into falsely complete pack.",
+      "Current-1, temperature32767, remaining-1, current_consumed-1, time_remaining0 -> unavailable; proper cA/cdegC/mV/mm/cm/s conversions.",
+      "Garbage prefix, bad CRC, fragmented byte chunks, concatenated packets, truncated ext fields, unsigned/signed policy, invalid range, source conflict and unknown message without crash.",
+      "SYS_STATUS never overwrites fresh per-pack data or duplicates vehicle-total current into two packs."
+    ],
+    "analysis": [
+      "100A,0.002ohm/cell,3.6V measured ->3.8V rest; measured3.4 remains Emergency despite correction.",
+      "Delta0.08 exact does not fault;0.0801 immediately faults; lower delta stable clear; unknown/aggregate cells cannot manufacture delta.",
+      "Rate110A ->1833.333mAh/min;60s ->1833.333mAh consumed;50% of30Ah at1500mAh/min ->10min.",
+      "Counter reset, battery swap, out-of-order time, missing current/capacity, charging, zero drain, long gap, partial history, bootstrap then slope transition.",
+      "900m/5mps/110A/30Ah ->180s and33.333333%; compare at equality; >100 true requirement kept; missing home/GPS ->unavailable.",
+      "Chemistry ambiguous from3.8/4.1V ->estimated/unknown; real type wins; explicit14 cells vs configured12 mismatch visible; stable lock and swap reset.",
+      "Rapid sag positive and negative fixtures, current-known requirement, short history and drift, no instant scenario jump misclassified as live sag unless intended.",
+      "Per-pack capacity mismatch/topology unknown must not compute combined endurance; stale one of two batteries produces data fault even when the other updates."
+    ],
+    "alerts": [
+      "30/20 percent and3.65/3.50/3.40V boundaries, RTL equality, precedence, independent cell fault, all reasons retained.",
+      "Notice/Warning debounce, immediate Critical/Emergency/CellFault, reason-specific hysteresis, five-second fresh critical/emergency clear.",
+      "Heartbeat fresh but battery stale ->data fault; link loss cannot clear dangerous condition; reconnect does not accept stale fields.",
+      "No duplicate output/chime on repeated state, no dismissal path, dual pack worst margin wins while another pack inspected."
+    ],
+    "outputs_and_service": [
+      "Fake scheduler:60s TTS once, no backlog, warning repeats configured, emergency preempts periodic/cell-fault, tone/vibration cancelled on release.",
+      "TTS init fail, locale fallback, audio focus loss, no vibrator ->availability reported and visuals remain.",
+      "Start/stop idempotency, repeated bind/reopen one session, no leaked socket/serial/AudioTrack, notification permission denied on13, OS interrupted session."
+    ],
+    "logger_interlock_transport": [
+      "CSV14 columns/indexes, null blanks, escape locale, source labels, independent GPS age, per-pack rows, bounded buffer, close flush, disk full recover.",
+      "Pump20 exact/below/initial below ->one OFF;disabled/unmapped/stale/untrusted/REPLAY ->zero hardware commands;ACK rejected/timeout/mismatch/accepted-unconfirmed distinct;no automatic ON.",
+      "USB denied/detach/multiple devices, serial missing/permission denied/config fail, UDP bind occupied/wrong sender/stop unblocks, bounded reconnect. Real loopback uses actual MAVLink bytes.",
+      "Simulation current decreases after off; x1/x5/x20 consistent estimator; scenario reset home/history deterministic; no hardcoded alert trigger."
+    ],
+    "ui_and_pixels": [
+      "Ring angle0/20/50/100, fill sweeps0/54/135/270;zones required33.4/15/null/>100; alerts fillnull.",
+      "Hero0/9/50/99/100 fits ring incl percent sign/label at supported densities/font scales; static tiles;6/12/14 slots;missing slots keep labels.",
+      "IN_PLACE all levels keep dashboard; literal mode banner/overlay/red modal/flash and no dismiss; cell fault chip coexists; reduced-motion uses static equivalent.",
+      "Stale numbers marked, source DEMO/LIVE/REPLAY visible, invalid config blocked, auto interlock unconfigured toggle disabled; actual screenshot inspection."
+    ]
+  },
+  "pass_fail_submission_checklist": [
+    {
+      "id": "BUILD",
+      "pass_if": "Gradle unit tests, assembleDebug and lint or existing equivalent actually run successfully; commands/results retained. APK installed on tested emulator/device if available.",
+      "blocked_if": "SDK/dependency/environment missing; never mark unrun tasks PASS."
+    },
+    {
+      "id": "FR-1.1",
+      "pass_if": "Both software adapters implemented/tested and at least one actual configured G20 USB/internal serial path proven with MAVLink stream for physical PASS.",
+      "blocked_if": "Hardware/node/permissions/USB mapping unavailable; UDP-only is not serial FRD compliance."
+    },
+    {
+      "id": "FR-1.2",
+      "pass_if": "Required messages decoded with sentinel handling,14S ext, conversions, source selection and encoded fixture integration.",
+      "blocked_if": "Only simulator/domain events or10-cell truncation."
+    },
+    {
+      "id": "FR-1.3",
+      "pass_if": "Evidence-ranked cell/chemistry detection tested; uncertain chemistry explicitly disclosed; configured/telemetry evidence distinguished.",
+      "blocked_if": "Voltage alone claimed definitive; strict hardware auto-chemistry guarantee unresolved."
+    },
+    {
+      "id": "FR-2.1",
+      "pass_if": "Compensation correct units and current quality; alerts not masked by rest estimates."
+    },
+    {
+      "id": "FR-2.2",
+      "pass_if": "Measured delta>0.08 immediate independent fault, missing cells not fabricated."
+    },
+    {
+      "id": "FR-2.3",
+      "pass_if": "Rate/history/bootstrap/time remaining validated and uncertainty displayed."
+    },
+    {
+      "id": "FR-3.1",
+      "pass_if": "900m golden fixture, missing home/no data,>100 cases validated; true home source used."
+    },
+    {
+      "id": "FR-3.2",
+      "pass_if": "Critical at<=required; cannot dismiss; clear only with fresh recovery evidence."
+    },
+    {
+      "id": "ALERT_MATRIX",
+      "pass_if": "Every trigger/voice/haptic behavior implemented; IN_PLACE documented deviation; opt-in literal FRD mode implemented and inspected; device unsupported outputs disclosed."
+    },
+    {
+      "id": "FR-5.1",
+      "pass_if": "Simulator cutoff passes; real physical PASS only with precise mapping,deliberate enablement,ACK/feedback and safe bench test.",
+      "blocked_if": "Recommendation-only,unknown actuator mapping or no bench evidence. Never imply a simulated pump is actual control."
+    },
+    {
+      "id": "FR-5.2",
+      "pass_if": "Periodic fresh battery/cell TTS60s with no urgent alert interruption; actual device TTS tested when available."
+    },
+    {
+      "id": "FR-5.3",
+      "pass_if": "Continuous logs mapped to timestampedGPS, readback/export, failure handling and labelled real/demo provenance."
+    },
+    {
+      "id": "BACKGROUND",
+      "pass_if": "Real-link FGS works on13 with notification approval/denial cases and one session across Activity lifecycle; no unsupported demo background claim."
+    },
+    {
+      "id": "DESIGN",
+      "pass_if": "Landscape, original theme, no cell animations, no hero overlap,correct zones, visible dashboard alerts, actual pixel checks recorded."
+    },
+    {
+      "id": "HANDOFF",
+      "pass_if": "Progress/spec/FRD/demo/hardware/limitations docs updated; each claim backed by actual artifact/test; hardware-unverified list explicit."
+    }
+  ],
+  "deliverables": [
+    "Existing project extended in place with source, pinned dependencies and no tool-specific lock-in. Working simulator remains default.",
+    "docs/DAY2_SPEC.json, updated docs/PROGRESS.md and AGENTS.md, docs/FRD_TRACEABILITY.md, docs/HARDWARE_SETUP.md, docs/TRANSPORTS_DAY2.md, docs/KNOWN_LIMITATIONS.md, docs/DEMO_SCRIPT.md, docs/TEST_REPORT.md, README with exact build/run steps and required hardware values.",
+    "Debug APK with actual output path/checksum if assembleDebug succeeds. Use meaningful APK filename for submission copy. No fabricated signed/release artifact or certificate. Build release only if existing signing configuration valid; never expose keystore secrets.",
+    "Unit tests, transport loopback fixtures, instrumented UI/lifecycle tests where possible, clearly synthetic MAVLink fixtures, labelled demo blackbox log, actual screenshots if device/emulator available.",
+    "FRD traceability must give source class/test name, software PASS/FAIL/BLOCKED, physical bench PASS/FAIL/NOT_TESTED and limits for every requirement including every matrix row. No blanket all requirements complete claim when serial/pump/chemistry certainty are unverified.",
+    "Final short report: changed files/modules, exact commands/results, APK location if produced, tests count/results, screenshots taken, hardware not tested, known blockers, next concrete action."
+  ],
+  "session_handoff": {
+    "progress_template": [
+      "Timestamp and current git commit/dirty files.",
+      "Step ID, status COMPLETE/IN_PROGRESS/BLOCKED, exact code touched.",
+      "Tests actually run and result; build environment failures distinct from code failures.",
+      "Important decisions/config and any deviation from Day1 or FRD.",
+      "Next single executable step with prerequisites and current failing test/error.",
+      "Hardware capability table, unverified parameters, no secret values."
+    ],
+    "rules": [
+      "Update PROGRESS.md after each step, not just end; keep concise. Commit completed coherent steps if local git workflow allows; no remote push and no unrelated changes.",
+      "Finish tests for the current step before expanding scope. If token budget near exhausted, stop at stable boundary, save progress and working changes, give resume prompt. Do not regenerate full project or full spec repeatedly.",
+      "Never stop after only planning if implementation can proceed. Keep output token-light: summary of current step, actual tests, next step."
+    ],
+    "resume_prompt": "Continue this existing Exodia Battery Alert project. Read AGENTS.md, docs/SPEC.json, docs/DAY2_SPEC.json and docs/PROGRESS.md first, then inspect git status and the files named in current progress. Do not rebuild or redesign. Reproduce the current failing check if any. Continue from the next incomplete build_order step, preserve package boundaries and default in-place UI, never fabricate hardware success or enable unknown actuator commands. Update PROGRESS.md and test the step before moving on."
+  },
+  "do_not": [
+    "No rewriting from scratch, second app, generic Material3 redesign, bottom navigation, login, map/video UI, backend or cloud dependency.",
+    "No arbitrary serial baud/port/IP/vendor SDK/PWM values masquerading as confirmed G20 configuration.",
+    "No fake cells from pack voltage used for delta/minimum measured-cell safety, fake chemistry certainty, invented health/cycle count, old data shown live, or current unknown treated as zero.",
+    "No hardcoded force-critical scenario bypass, scenario names in production safety engine, mismatched virtual clocks or first remote position silently set as live home.",
+    "No automatic real pump writes without verified mapping/enablement; no ARM/DISARM/RTL/LAND commands, actuator probing, root or chmod.",
+    "No network uploads/log sharing without user choice, persistent secrets in source/docs/logs, or warnings muted to make demo look better.",
+    "No PASS claims for tests not run, fabricated screenshots/APKs/logs from real drone, dependency versions/APIs guessed rather than resolved, or hiding limitations behind TODO-only success states."
+  ],
+  "primary_reference_sources": [
+    {
+      "url": "https://mavlink.io/en/messages/common.html",
+      "use": "Common message definitions and units; use actual full definition/generated dialect when page extraction omits sections."
+    },
+    {
+      "url": "https://github.com/mavlink/c_library_v2/blob/master/common/mavlink_msg_battery_status.h",
+      "use": "Verified BATTERY_STATUS base/ext sentinel semantics,14-cell coverage and pack-only encoding."
+    },
+    {
+      "url": "https://mavlink.io/en/guide/serialization.html",
+      "use": "MAVLink1/2 framing, CRC_EXTRA, signed frame/trailing extension behavior."
+    },
+    {
+      "url": "https://github.com/dronefleet/mavlink",
+      "use": "Java connection API, coordinates and signing example; inspect resolved API before calls."
+    },
+    {
+      "url": "https://central.sonatype.com/artifact/io.dronefleet/mavlink/mavlink/1.1.11",
+      "use": "Published dependency coordinates."
+    },
+    {
+      "url": "https://github.com/mik3y/usb-serial-for-android",
+      "use": "USB driver/permission/opening lifecycle."
+    },
+    {
+      "url": "https://github.com/mik3y/usb-serial-for-android/releases/tag/3.10.0",
+      "use": "Pinned candidate USB library release."
+    },
+    {
+      "url": "https://developer.android.com/develop/background-work/services/fgs/service-types",
+      "use": "Foreground-service types,permissions and current-version prerequisites."
+    },
+    {
+      "url": "https://developer.android.com/develop/ui/views/notifications/notification-permission",
+      "use": "Android13 notification request and foreground-service distinction."
+    }
+  ]
+}
+
