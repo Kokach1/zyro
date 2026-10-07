@@ -1,6 +1,5 @@
 package com.exodia.batteryalert.ui.monitor
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -29,18 +28,15 @@ import kotlinx.coroutines.flow.StateFlow
 @Composable fun BatteryMonitorScreen(viewModel: BatteryMonitorViewModel) { val state by viewModel.uiState.collectAsState(); BatteryDashboard(state, viewModel::scenario, viewModel::speed, viewModel::pause, viewModel::reset, viewModel::profile) }
 
 @Composable fun BatteryDashboard(state: BatteryUiState, scenario: (SimulatorScenario) -> Unit = {}, speed: (Int) -> Unit = {}, pause: (Boolean) -> Unit = {}, reset: () -> Unit = {}, profile: (String) -> Unit = {}) {
-    var sheet by remember { mutableStateOf(false) }; val emergency = state.alert?.level == AlertLevel.EMERGENCY
-    val background by animateColorAsState(if (emergency) AlertColors.Emergency else AlertColors.Background, tween(500), label = "emergency")
-    Box(Modifier.fillMaxSize().background(background)) {
+    var sheet by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize().background(AlertColors.Background)) {
         Column(Modifier.fillMaxSize()) {
             StatusBar(state, { sheet = true })
-            state.alert?.takeIf { it.level in setOf(AlertLevel.NOTICE, AlertLevel.WARNING) }?.let { AlertBanner(it) }
             Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Hero(state, Modifier.weight(.46f).fillMaxHeight())
                 CellPanel(state, Modifier.weight(.54f).fillMaxHeight())
             }
         }
-        when (state.alert?.level) { AlertLevel.CRITICAL -> CriticalModal(state); AlertLevel.EMERGENCY -> EmergencyModal(state); else -> Unit }
     }
     if (sheet) SimulatorControlSheet(state, { sheet = false }, scenario, speed, pause, reset, profile)
 }
@@ -58,25 +54,27 @@ import kotlinx.coroutines.flow.StateFlow
 }
 
 @Composable private fun Hero(state: BatteryUiState, modifier: Modifier) {
-    val analysis = state.analysis; val percent = analysis?.remainingPercent ?: 0; val level = state.alert?.level ?: AlertLevel.NONE
+    val analysis = state.analysis; val percent = analysis?.remainingPercent ?: 0; val presentation = alertPresentation(state.alert, state.cellFault, state.connection)
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        HeroRingReadout(percent, analysis != null, state.rtl?.requiredPercent, level, state.connection is ConnectionState.LinkLost)
-        Spacer(Modifier.height(18.dp)); Row { Metric("TIME LEFT", analysis?.minutesRemaining?.let { "${it.toInt()} min" } ?: "–", Modifier.weight(1f)); Box(Modifier.width(1.dp).height(58.dp).background(AlertColors.Outline)); Metric("RETURN NEEDS", state.rtl?.requiredPercent?.let { "${kotlin.math.ceil(it).toInt()}%" } ?: "–", Modifier.weight(1f)) }
+        HeroRingReadout(percent, analysis != null, state.rtl?.requiredPercent, presentation)
+        Spacer(Modifier.height(18.dp)); Row { Metric("TIME LEFT", analysis?.minutesRemaining?.let { "${it.toInt()} min" } ?: "--", Modifier.weight(1f)); Box(Modifier.width(1.dp).height(58.dp).background(AlertColors.Outline)); Metric("RETURN IN", formatSeconds(state.rtl?.returnEtaSec), Modifier.weight(1f)) }
     }
 }
 
-@Composable private fun HeroRingReadout(percent: Int, hasData: Boolean, required: Float?, level: AlertLevel, stale: Boolean) {
+@Composable private fun HeroRingReadout(percent: Int, hasData: Boolean, required: Float?, presentation: AlertPresentation?) {
     val ringDiameter = 420.dp
     val fontSize = HeroNumberLayout.fontSizeSp(ringDiameter.value, LocalDensity.current.density).sp
     Box(Modifier.size(ringDiameter), contentAlignment = Alignment.Center) {
-        BatteryRing(percent, required, level, stale)
+        BatteryRing(percent, required, presentation?.suppressRingFill == true)
         required?.let { ReturnTickLabel(it, ringDiameter) }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                Text(if (hasData) "$percent" else "–", color = if (level >= AlertLevel.WARNING) colorFor(level) else AlertColors.Primary, style = Tabular.copy(fontSize = fontSize, lineHeight = fontSize, fontWeight = FontWeight.SemiBold))
-                Text("%", color = AlertColors.Secondary, style = Tabular.copy(fontSize = (fontSize.value * .30f).sp, fontWeight = FontWeight.Medium))
+                val numberColor = presentation?.color ?: AlertColors.Primary
+                val glow = presentation?.color?.let { Shadow(color = it.copy(alpha = .55f), offset = Offset.Zero, blurRadius = 18f) }
+                Text(if (hasData) "$percent" else "–", color = numberColor, style = Tabular.copy(fontSize = fontSize, lineHeight = fontSize, fontWeight = FontWeight.SemiBold, shadow = glow))
+                Text("%", color = numberColor, style = Tabular.copy(fontSize = (fontSize.value * .30f).sp, fontWeight = FontWeight.Medium, shadow = glow))
             }
-            Text("REMAINING", color = AlertColors.Secondary, style = Tabular.copy(fontSize = 14.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium))
+            Text(presentation?.label ?: "REMAINING", color = presentation?.color ?: AlertColors.Secondary, style = Tabular.copy(fontSize = 14.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium, shadow = presentation?.color?.let { Shadow(color = it.copy(alpha = .45f), blurRadius = 10f) }))
         }
     }
 }
@@ -89,13 +87,13 @@ import kotlinx.coroutines.flow.StateFlow
     Text("RTL", color = AlertColors.Secondary, style = Tabular.copy(fontSize = 10.sp), modifier = Modifier.offset(x.dp, y.dp))
 }
 
-@Composable private fun BatteryRing(percent: Int, required: Float?, level: AlertLevel, stale: Boolean) {
+@Composable private fun BatteryRing(percent: Int, required: Float?, suppressFill: Boolean) {
     val sweep by animateFloatAsState(percent / 100f * 270f, tween(400), label = "ring")
     Canvas(Modifier.fillMaxSize()) { val stroke = HeroNumberLayout.ringStrokeDp.dp.toPx(); val zoneStroke = 6.dp.toPx(); val mainSize = size.minDimension - stroke; val mainTop = Offset((this.size.width - mainSize) / 2, (this.size.height - mainSize) / 2); val zoneSize = mainSize + stroke + zoneStroke * 2; val zoneTop = Offset((this.size.width - zoneSize) / 2, (this.size.height - zoneSize) / 2)
         drawArc(AlertColors.Outline, RingGeometry.startAngle, RingGeometry.totalSweep, false, mainTop, Size(mainSize, mainSize), style = Stroke(stroke, cap = StrokeCap.Round))
         drawArc(AlertColors.Critical.copy(.35f), RingGeometry.angleFor(0f), RingGeometry.fillSweep(AppConfig.warningPercent.toFloat()), false, zoneTop, Size(zoneSize, zoneSize), style = Stroke(zoneStroke, cap = StrokeCap.Butt))
         if (required != null && required > AppConfig.warningPercent) drawArc(AlertColors.Notice.copy(.35f), RingGeometry.angleFor(AppConfig.warningPercent.toFloat()), RingGeometry.fillSweep(required - AppConfig.warningPercent), false, zoneTop, Size(zoneSize, zoneSize), style = Stroke(zoneStroke, cap = StrokeCap.Butt))
-        if (level == AlertLevel.NONE && !stale) drawArc(AlertColors.Normal, RingGeometry.startAngle, sweep, false, mainTop, Size(mainSize, mainSize), style = Stroke(stroke, cap = StrokeCap.Round))
+        if (!suppressFill) drawArc(AlertColors.Normal, RingGeometry.startAngle, sweep, false, mainTop, Size(mainSize, mainSize), style = Stroke(stroke, cap = StrokeCap.Round))
         if (required != null) { val radians = Math.toRadians(RingGeometry.angleFor(required).toDouble()); val center = Offset(this.size.width / 2, this.size.height / 2); val radius = mainSize / 2 + stroke / 2; val outer = Offset(center.x + kotlin.math.cos(radians).toFloat() * (radius + 5.dp.toPx()), center.y + kotlin.math.sin(radians).toFloat() * (radius + 5.dp.toPx())); val inner = Offset(center.x + kotlin.math.cos(radians).toFloat() * (radius - 5.dp.toPx()), center.y + kotlin.math.sin(radians).toFloat() * (radius - 5.dp.toPx())); drawLine(Color.White, inner, outer, 3.dp.toPx()) }
     }
 }
@@ -110,13 +108,9 @@ import kotlinx.coroutines.flow.StateFlow
 @Composable private fun CellTile(index: Int, voltage: Float, minimum: Float, maximum: Float, cellFault: Boolean, modifier: Modifier) { val warning = voltage <= AppConfig.warningCellVoltageV; val imbalanceCell = cellFault && (voltage == minimum || voltage == maximum); val orange = warning || imbalanceCell; Column(modifier.background(AlertColors.Raised, RoundedCornerShape(14.dp)).border(if (orange) 1.dp else 0.dp, if (orange) AlertColors.CellFault else AlertColors.Secondary, RoundedCornerShape(14.dp)).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text("$index", modifier = Modifier.fillMaxWidth(), color = AlertColors.Secondary, fontSize = 12.sp, textAlign = TextAlign.Center); Spacer(Modifier.weight(1f)); Text("%.2f".format(voltage), color = if (orange) AlertColors.CellFault else AlertColors.Primary, style = Tabular.copy(fontSize = 20.sp, fontWeight = FontWeight.SemiBold)); Box(Modifier.fillMaxWidth().height(5.dp).background(if (orange) AlertColors.CellFault else AlertColors.Secondary, RoundedCornerShape(99.dp))) } }
 @Composable private fun Metric(label: String, value: String, modifier: Modifier = Modifier) { Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) { Text(label, color = AlertColors.Secondary, style = Tabular.copy(fontSize = 14.sp, letterSpacing = 1.2.sp)); Text(value, color = AlertColors.Primary, style = Tabular.copy(fontSize = 36.sp, fontWeight = FontWeight.SemiBold)) } }
 @Composable private fun Footer(label: String, value: String, modifier: Modifier) = Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) { Text(label, color = AlertColors.Secondary, fontSize = 12.sp); Text(value, color = AlertColors.Primary, style = Tabular.copy(fontSize = 24.sp, fontWeight = FontWeight.SemiBold)) }
-@Composable private fun AlertBanner(alert: ActiveAlert) { Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) { Row(Modifier.widthIn(max = 760.dp).heightIn(min = 64.dp).background(colorFor(alert.level), RoundedCornerShape(14.dp)).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(alert.title.uppercase(), color = AlertColors.Background, fontSize = 24.sp, fontWeight = FontWeight.Bold); Text(alert.message, color = AlertColors.Background, fontSize = 18.sp) }; if (alert.dismissible) Text("Got it", color = AlertColors.Background, fontWeight = FontWeight.Bold) } } }
-@Composable private fun CriticalModal(state: BatteryUiState) { Box(Modifier.fillMaxSize().background(AlertColors.Critical.copy(.96f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("RETURN NOW", color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.Bold); Text("Mandatory RTL recommended!", color = Color.White, fontSize = 28.sp); Spacer(Modifier.height(28.dp)); Text("REMAINING ${state.analysis?.remainingPercent ?: "–"}%    NEEDED ${state.rtl?.requiredPercent?.toInt() ?: "–"}%", color = Color.White, style = Tabular.copy(fontSize = 32.sp, fontWeight = FontWeight.SemiBold)) } } }
-@Composable private fun EmergencyModal(state: BatteryUiState) { Box(Modifier.fillMaxSize().background(AlertColors.Emergency.copy(.96f)), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("LAND NOW", color = Color.White, fontSize = 72.sp, fontWeight = FontWeight.Bold); Text("Land immediately", color = Color.White, fontSize = 28.sp); Text(state.analysis?.minCellV?.let { "%.2f V".format(it) } ?: "–", color = AlertColors.Emergency, modifier = Modifier.padding(20.dp).background(Color.White, RoundedCornerShape(99.dp)).padding(horizontal = 24.dp, vertical = 8.dp), fontSize = 32.sp) } } }
-private fun colorFor(level: AlertLevel) = when (level) { AlertLevel.NOTICE -> AlertColors.Notice; AlertLevel.WARNING -> AlertColors.Warning; AlertLevel.CRITICAL -> AlertColors.Critical; AlertLevel.EMERGENCY -> AlertColors.Emergency; else -> AlertColors.Normal }
 @Preview(widthDp = 960, heightDp = 540) @Composable private fun PreviewNormal() = BatteryAlertTheme { BatteryDashboard(BatteryUiState()) }
-@Preview @Composable private fun PreviewHero100() = BatteryAlertTheme { HeroRingReadout(100, true, null, AlertLevel.NONE, false) }
-@Preview @Composable private fun PreviewHero99() = BatteryAlertTheme { HeroRingReadout(99, true, null, AlertLevel.NONE, false) }
-@Preview @Composable private fun PreviewHero50() = BatteryAlertTheme { HeroRingReadout(50, true, null, AlertLevel.NONE, false) }
-@Preview @Composable private fun PreviewHero9() = BatteryAlertTheme { HeroRingReadout(9, true, null, AlertLevel.NONE, false) }
-@Preview @Composable private fun PreviewHero0() = BatteryAlertTheme { HeroRingReadout(0, true, null, AlertLevel.NONE, false) }
+@Preview @Composable private fun PreviewHero100() = BatteryAlertTheme { HeroRingReadout(100, true, null, null) }
+@Preview @Composable private fun PreviewHero99() = BatteryAlertTheme { HeroRingReadout(99, true, null, null) }
+@Preview @Composable private fun PreviewHero50() = BatteryAlertTheme { HeroRingReadout(50, true, null, null) }
+@Preview @Composable private fun PreviewHero9() = BatteryAlertTheme { HeroRingReadout(9, true, null, null) }
+@Preview @Composable private fun PreviewHero0() = BatteryAlertTheme { HeroRingReadout(0, true, null, null) }

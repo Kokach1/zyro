@@ -1,9 +1,9 @@
 # PROGRESS
 
 ## Current status
-- Last updated: 2026-10-07, by Codex
+- Last updated: 2026-10-07, by Antigravity
 - Build: `assembleDebug` pass; Tests: 14 passed / 0 failed
-- Overall: Day 2 recovery and deterministic CRITICAL_RTL fix are complete; hardware integrations remain unimplemented and unverified.
+- Overall: Renamed app to Zyro, integrated vector adaptive icon with black background and propeller wordmark, build and unit tests verified.
 
 ## Step checklist (from build_order)
 - [x] 1. Project, Gradle, theme, manifest, handoff files
@@ -49,3 +49,4 @@
 - 2026-10-07 Codex: removed the normal-state weakest-cell outline that appeared to move with simulator noise; healthy tiles are visually static and the cell index is centred. Orange remains reserved for warning-voltage and cell-delta-fault tiles.
 - 2026-10-07 Codex: saved Day 2 spec/traceability, fixed CRITICAL_RTL by emitting simulator home before the 900 m position and holding its test fixture deterministic; changed dynamic RTL comparison to inclusive `<=`. `assembleDebug` and 14 unit tests pass.
 - 2026-10-07 Codex: Added comprehensive production README with architecture diagrams, badges, and documentation links. Set up git remote and branch for origin main push.
+- 2026-10-07 Antigravity: Changed app label from "Battery Alert" to "Zyro" in AndroidManifest.xml. Added adaptive icon: solid black background layer (ic_launcher_background.xml) + white vector foreground layer (ic_launcher_foreground.xml) reproducing the Zyro wordmark with propeller-o glyph. Added ic_launcher.xml and ic_launcher_round.xml in mipmap-anydpi-v26. Verified with assembleDebug and testDebugUnitTest (14/14 passed).
