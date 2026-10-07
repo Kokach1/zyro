@@ -1,9 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
-    Zyro app icon – foreground layer (transparent background).
-    White wordmark: z, y, r, and a propeller-circle replacing the o.
-    Canvas: 108×108 dp (adaptive icon standard). Safe zone: 72×72 dp centred.
-    Centred wordmark box ≈ x 10..98, y 38..70.
+    Zyro adaptive icon – foreground layer.
+    Propeller-circle symbol (the "o" glyph from the Zyro wordmark).
+    Centred at (54,54) in the 108×108 adaptive-icon canvas.
+    Outer radius 27 dp → 54 dp diameter, well inside the 72 dp safe zone.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -11,59 +11,34 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- ===== z ===== -->
-    <!-- top bar -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M10,38 L30,38 L30,42 L10,42 Z"/>
-    <!-- diagonal (top-right → bottom-left) -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M26,42 L14,66 L18,66 L30,42 Z"/>
-    <!-- bottom bar -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M10,66 L30,66 L30,70 L10,70 Z"/>
+    <!-- Ring: outer R=27, inner R=21, centre (54,54), 6 dp stroke -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="
+            M54,27  A27,27,0,1,1,53.999,27 Z
+            M54,33  A21,21,0,1,0,54.001,33 Z"/>
 
-    <!-- ===== y ===== -->
-    <!-- left arm -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M33,38 L37,38 L47,58 L43,58 Z"/>
-    <!-- right arm -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M59,38 L63,38 L53,58 L49,58 Z"/>
-    <!-- descending tail -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M43,58 L47,58 L47,70 L43,70 Z"/>
+    <!-- Four propeller blades (cubic-bezier petals, hub→ring) -->
 
-    <!-- ===== r ===== -->
-    <!-- vertical stem -->
+    <!-- Top blade -->
     <path android:fillColor="#FFFFFF"
-        android:pathData="M66,38 L70,38 L70,70 L66,70 Z"/>
-    <!-- shoulder arc (straight approximation) -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M70,38 L80,38 Q86,38 86,46 Q86,54 80,54 L70,54 L70,50 L79,50 Q82,50 82,46 Q82,42 79,42 L70,42 Z"/>
-    <!-- kick (diagonal leg from shoulder bottom-right) -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M76,54 L80,54 L84,64 L80,64 Z"/>
+        android:pathData="M54,49 C48,45 48,38 54,35 C60,38 60,45 54,49 Z"/>
 
-    <!-- ===== propeller-o ===== -->
-    <!-- ring: outer r=11, inner r=7, centre (97,54) -->
+    <!-- Right blade -->
     <path android:fillColor="#FFFFFF"
-          android:fillType="evenOdd"
-          android:pathData="
-              M97,43 A11,11,0,1,1,96.999,43 Z
-              M97,47 A7,7,0,1,0,97.001,47 Z"/>
+        android:pathData="M59,54 C63,48 70,48 73,54 C70,60 63,60 59,54 Z"/>
 
-    <!-- four propeller blades (white filled) -->
-    <!-- top blade -->
+    <!-- Bottom blade -->
     <path android:fillColor="#FFFFFF"
-        android:pathData="M94.5,47 Q97,42 99.5,47 L99.5,54 L94.5,54 Z"/>
-    <!-- bottom blade -->
+        android:pathData="M54,59 C60,63 60,70 54,73 C48,70 48,63 54,59 Z"/>
+
+    <!-- Left blade -->
     <path android:fillColor="#FFFFFF"
-        android:pathData="M94.5,61 Q97,66 99.5,61 L99.5,54 L94.5,54 Z"/>
-    <!-- left blade -->
+        android:pathData="M49,54 C45,48 38,48 35,54 C38,60 45,60 49,54 Z"/>
+
+    <!-- Centre hub dot, R=3 -->
     <path android:fillColor="#FFFFFF"
-        android:pathData="M93,51.5 Q88,54 93,56.5 L97,56.5 L97,51.5 Z"/>
-    <!-- right blade -->
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M101,51.5 Q106,54 101,56.5 L97,56.5 L97,51.5 Z"/>
+        android:pathData="M54,51 A3,3,0,1,1,53.999,51 Z"/>
 
 </vector>
