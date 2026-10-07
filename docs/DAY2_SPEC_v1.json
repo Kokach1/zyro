@@ -1,4 +1,5 @@
 {
+  "_archival_notice": "SUPERSEDED - HISTORICAL RECORD ONLY. Operative authority is docs/CURRENT_FIX_SPEC.json (2026-10-07-v2-in-place-alerts).",
   "prompt_name": "Exodia Battery Alert - Day 2 Existing-Project Implementation",
   "version": "day2-v1",
   "how_to_use": "Paste this entire JSON into the coding tool with the existing Day 1 project folder open. This is an implementation instruction, not application runtime configuration. Extend the project on disk. Do not create a second app, rebuild the design, or stop after producing a plan. Work in the ordered steps below and leave resumable progress if the session ends.",

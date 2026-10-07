@@ -1,4 +1,5 @@
 {
+  "_archival_notice": "SUPERSEDED - HISTORICAL RECORD ONLY. Operative authority is docs/CURRENT_FIX_SPEC.json (2026-10-07-v2-in-place-alerts).",
   "prompt_name": "Zyro - company FRD implementation, real connectivity first, all review fixes",
   "version": "frd-first-v2-2026-10-07",
   "role": "Senior Android/Kotlin engineer. Implement a working, testable monitoring app with honest hardware limitations. Prefer small changes, explicit units and deterministic tests. Do not call a simulation result a hardware result.",
