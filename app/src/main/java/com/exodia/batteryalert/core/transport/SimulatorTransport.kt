@@ -24,7 +24,7 @@ class SimulatorTransport(private val clock: Clock = SystemClock) : TelemetryTran
     private var scenario = SimulatorScenario.NORMAL_FLIGHT
     private var multiplier = 1
     private var paused = false
-    private var consumed = 0f; private var simulatedMs = 0L; private var distanceM = 0f
+    private var consumed = 0f; private var simulatedMs = 0L; private var distanceM = 0f; private var homePublished = false
     override suspend fun start() {
         if (scope != null) return
         _connectionState.value = ConnectionState.Connecting
@@ -38,23 +38,24 @@ class SimulatorTransport(private val clock: Clock = SystemClock) : TelemetryTran
     fun setSpeedMultiplier(value: Int) { multiplier = value.coerceIn(1, 20) }
     fun setProfile(id: String) { profile = BatteryProfiles.byId(id); resetToFull() }
     fun pause() { paused = true }; fun resume() { paused = false }
-    fun resetToFull() { consumed = 0f; simulatedMs = 0L; distanceM = 0f; paused = false }
+    fun resetToFull() { consumed = 0f; simulatedMs = 0L; distanceM = 0f; homePublished = false; paused = false }
     private suspend fun emitTick() {
         if (paused) return
         if (scenario == SimulatorScenario.LINK_LOST && simulatedMs in 2_000..10_000) { _connectionState.value = ConnectionState.LinkLost(clock.nowMs()); simulatedMs += 200L * multiplier; return }
         _connectionState.value = ConnectionState.Connected
         val dt = 0.2f * multiplier; simulatedMs += (dt * 1_000).toLong()
         val baseCurrent = when (scenario) { SimulatorScenario.CRITICAL_RTL -> 110f; SimulatorScenario.EMERGENCY -> 140f; else -> 90f }
-        val current = baseCurrent + sin(simulatedMs / 3_000.0).toFloat() * 4f
+        val current = if (scenario == SimulatorScenario.CRITICAL_RTL) baseCurrent else baseCurrent + sin(simulatedMs / 3_000.0).toFloat() * 4f
         consumed = (consumed + current * dt / 3.6f).coerceAtMost(profile.capacityMah.toFloat())
-        distanceM += 5f * dt
+        if (scenario != SimulatorScenario.CRITICAL_RTL) distanceM += 5f * dt
         val percent = (100f - consumed / profile.capacityMah * 100f).coerceIn(0f, 100f)
         val open = CellVoltageCurve.voltageForPercent(percent)
         val cells = List(profile.cellCount) { index -> open - current * .002f + ((index % 5) - 2) * .006f + Random.nextFloat() * .006f - .003f }.toMutableList()
         when (scenario) { SimulatorScenario.LOW_CELL -> cells[0] = 3.48f; SimulatorScenario.EMERGENCY -> cells[0] = 3.38f; SimulatorScenario.CELL_IMBALANCE -> { cells[0] = open - .11f; cells[1] = open }; else -> Unit }
         val timestamp = clock.nowMs() + simulatedMs
         val battery = BatteryFrame(timestamp, cells, cells.sum(), current, consumed, 28f + (100f - percent) * .2f, percent.toInt())
-        val homeLat = 10.0159; val lon = 76.3419 + distanceM / 111_195.0
+        val homeLat = 10.0159; val homeLon = 76.3419; val lon = homeLon + distanceM / 111_195.0
+        if (!homePublished) { _frames.emit(TelemetryFrame.Position(PositionFrame(timestamp, homeLat, homeLon, 0f, 0f, 0f))); homePublished = true }
         _frames.emit(TelemetryFrame.Battery(battery)); _frames.emit(TelemetryFrame.Position(PositionFrame(timestamp, homeLat, lon, 0f, 0f, 5f)))
     }
 }

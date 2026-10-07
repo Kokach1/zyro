@@ -10,3 +10,4 @@
 8. Update `docs/PROGRESS.md` at the end of every work session.
 9. Before handing over, run `./gradlew assembleDebug` and `./gradlew testDebugUnitTest` when the environment permits it.
 10. Record exact build/test results and any blocker in `docs/PROGRESS.md`.
+11. For Day 2 work, read `docs/DAY2_SPEC.json` and maintain `docs/FRD_TRACEABILITY.md`.

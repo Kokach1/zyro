@@ -31,6 +31,13 @@ class CoreLogicTest {
         assertEquals(18.6f, result.requiredPercent ?: 0f, .01f); assertTrue(result.belowRequired); assertEquals(120, result.returnEtaSec)
         assertEquals(125, calculator.assess(612f, 540f, 19, 10f).returnEtaSec)
     }
+    @Test fun criticalRtlGoldenFixtureUsesTheExactBoundary() {
+        val result = RtlCalculator(BatteryProfiles.default).assess(900f, 1_833.3333f, 30, 10f)
+        assertEquals(180, result.returnEtaSec)
+        assertEquals(33.333332f, result.requiredPercent ?: 0f, .001f)
+        assertTrue(result.belowRequired)
+        assertTrue(RtlCalculator(BatteryProfiles.default).assess(900f, 1_833.3333f, 34, 10f).belowRequired.not())
+    }
     @Test fun geoMathCalculatesLatitudeDistance() { assertEquals(111_195.0, GeoMath.haversineMeters(0.0, 0.0, 1.0, 0.0), 200.0) }
     @Test fun consumptionNeedsTenSecondsAndCalculatesRate() {
         val history = ConsumptionHistory(30); history.add(0, 0f); history.add(9_000, 90f); assertNull(history.rateMahPerMin()); history.add(30_000, 300f); history.add(60_000, 600f); assertEquals(600f, history.rateMahPerMin() ?: 0f, .01f)
