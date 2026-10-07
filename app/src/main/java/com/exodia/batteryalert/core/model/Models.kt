@@ -10,17 +10,74 @@ data class BatteryFrame(
     val remainingPercent: Int? = null,
     val batteryId: Int = 0,
     val cycleCount: Int? = null,
-    val healthPercent: Int? = null
+    val healthPercent: Int? = null,
+    // Day 2 fields with safe defaults preserving Day 1 contracts:
+    val isAggregateOnly: Boolean = false,
+    val systemId: Int = 1,
+    val componentId: Int = 1,
+    val stale: Boolean = false,
+    val receivedAtMonotonicMs: Long = timestampMs,
+    val faultBitmask: Long = 0L,
+    val isCurrentKnown: Boolean = true,
+    val isFromFallback: Boolean = false
 )
 
 data class PositionFrame(
-    val timestampMs: Long, val latDeg: Double, val lonDeg: Double,
-    val altitudeM: Float, val relativeAltitudeM: Float, val groundSpeedMps: Float
+    val timestampMs: Long,
+    val latDeg: Double,
+    val lonDeg: Double,
+    val altitudeM: Float,
+    val relativeAltitudeM: Float,
+    val groundSpeedMps: Float,
+    val systemId: Int = 1,
+    val componentId: Int = 1
+)
+
+enum class HomeSource { AUTOPILOT_HOME, SIMULATOR_HOME, USER_CONFIRMED_FALLBACK }
+
+data class HomeFrame(
+    val timestampMs: Long,
+    val latDeg: Double,
+    val lonDeg: Double,
+    val altitudeM: Float = 0f,
+    val source: HomeSource = HomeSource.AUTOPILOT_HOME,
+    val isValid: Boolean = true
+)
+
+data class VehicleStateFrame(
+    val timestampMs: Long,
+    val systemId: Int,
+    val componentId: Int,
+    val isArmed: Boolean,
+    val autopilotType: Int = 0,
+    val systemStatus: Int = 0,
+    val isAutopilot: Boolean = true
+)
+
+enum class CommandAckResult {
+    ACCEPTED,
+    TEMPORARILY_REJECTED,
+    DENIED,
+    UNSUPPORTED,
+    FAILED,
+    IN_PROGRESS
+}
+
+data class CommandResultFrame(
+    val timestampMs: Long,
+    val commandId: Int,
+    val result: CommandAckResult,
+    val progress: Int = 0,
+    val targetSystem: Int = 1,
+    val targetComponent: Int = 1
 )
 
 sealed interface TelemetryFrame {
     data class Battery(val value: BatteryFrame) : TelemetryFrame
     data class Position(val value: PositionFrame) : TelemetryFrame
+    data class Home(val value: HomeFrame) : TelemetryFrame
+    data class VehicleState(val value: VehicleStateFrame) : TelemetryFrame
+    data class CommandResult(val value: CommandResultFrame) : TelemetryFrame
 }
 
 sealed interface ConnectionState {

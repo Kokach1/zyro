@@ -1,4 +1,4 @@
-# Exodia Drone Battery Alert System (B-Helth)
+# Zyro — Agricultural Drone Smart Battery Alert System
 
 [![Platform: Android](https://img.shields.io/badge/Platform-Android%2013%20%7C%20API%2033-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.x%20%7C%20JVM%2017-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org)
@@ -15,7 +15,7 @@
 
 Agricultural spraying drone operations require immediate, clear situational awareness under direct sunlight conditions where operators frequently wear gloves and observe ground telemetry in brief intervals.
 
-**Exodia Battery Alert** delivers an instrument-cluster style monitoring interface that parses drone telemetry, continuously computes dynamic return-to-launch (RTL) battery requirements, monitors cell balance and voltage sag, and issues multi-tier alerts prior to critical power exhaustion.
+**Zyro** delivers an instrument-cluster style monitoring interface that connects to real drone telemetry (UDP MAVLink, USB-Serial, Internal Serial) and integrated replay simulation, continuously computes dynamic return-to-launch (RTL) battery requirements, monitors cell balance and voltage sag, and issues multi-tier alerts prior to critical power exhaustion.
 
 ```
 +-----------------------------------------------------------------------------------------------+
@@ -34,6 +34,16 @@ Agricultural spraying drone operations require immediate, clear situational awar
 ---
 
 ## 2. Key Architecture & Features
+
+### Real Telemetry Ingestion (MAVLink 1 & 2)
+- **Shared Streaming Codec (`MavlinkCodec`):** Pure-Kotlin streaming MAVLink 1/2 decoder supporting CRC_EXTRA verification, automatic garbage/noise resynchronization, fragmented reads, and concatenated packets.
+- **Full 14S Pack Support:** Parses `BATTERY_STATUS` with 10 standard cell voltages plus `voltagesExt` (cells 11..14), handling sentinel $1\,\text{mV}$ values ($0.001\,\text{V}$) for measured near-zero cells to guarantee cell fault alerts are never masked.
+- **Selectable Transports:**
+  - **UDP Transport (`UdpTransport`):** Datagram socket binding on port `14550` with connection watchdog (bind = `Connecting`, valid telemetry = `Connected`, inactivity timeout = `LinkLost`).
+  - **USB Serial (`UsbSerialTransport`):** Pure-core `ByteStreamSource` abstraction connected to `AndroidUsbSerialStream` (backed by `usb-serial-for-android` and Android `UsbManager`).
+  - **Internal Serial (`InternalSerialTransport`):** Candidate path for `/dev/ttySx` with permission diagnostics.
+  - **Replay Transport (`ReplayTransport`):** Replays flight recordings from scoped JSONL and `.tlog` files with virtual clock pacing and hardware write suppression.
+- **Cold Launch Flow:** Opens directly to real connection setup. Simulator runs strictly via an explicit secondary action.
 
 ### Instrument-Cluster UI Design
 - **Single-Glance Hero Ring:** Custom 270-degree multi-zoned circular gauge displaying active state, dynamic RTL threshold markers, and warning bands.
@@ -54,9 +64,6 @@ Multi-tier priority alert pipeline with debouncing and anti-chatter hysteresis:
 4. **NOTICE (`#F2D04B`):** Dismissible banner when capacity $\le 30\%$.
 5. **CELL FAULT (`#FF7A2F`):** Dedicated delta warning indicator with outlier border highlights.
 
-### Flight Telemetry Simulator
-Integrated 5 Hz telemetry simulation pipeline with non-linear Li-ion discharge curves, configurable speed multipliers ($1\times, 5\times, 20\times$), battery profiles (e.g., DJI Agras T55 / DB1580 class), and selectable test scenarios (*Fast Discharge, Dynamic RTL Trigger, Cell Sag, Link Loss*).
-
 ---
 
 ## 3. Package Layout & Boundaries
@@ -68,13 +75,16 @@ com.exodia.batteryalert
 ├── core/
 │   ├── alert/          # AlertEngine state machine, AlertLevel, AlertOutput
 │   ├── analysis/       # BatteryAnalyzer, RtlCalculator, ChemistryDetector, GeoMath
-│   ├── config/         # AppConfig (Single source of truth for all thresholds)
-│   ├── model/          # Pure data classes (BatteryFrame, PositionFrame, BatteryAnalysis)
+│   ├── config/         # AppConfig, TransportConfig, BatteryProfiles
+│   ├── model/          # Pure data classes (BatteryFrame, PositionFrame, HomeFrame, VehicleStateFrame)
 │   ├── telemetry/      # TelemetryRepository, link watchdog, snapshot aggregation
-│   └── transport/      # TelemetryTransport interface, SimulatorTransport
+│   └── transport/      # TelemetryTransport, MavlinkCodec, UdpTransport, UsbSerialTransport, ReplayTransport, ByteStreamSource
+├── platform/
+│   └── transport/      # AndroidUsbSerialStream (UsbManager + usb-serial-for-android)
 ├── ui/
 │   ├── debug/          # SimulatorControlSheet composables
 │   ├── monitor/        # BatteryMonitorScreen, BatteryMonitorViewModel, BatteryUiState
+│   ├── setup/          # ConnectionSetupSheet
 │   └── theme/          # Color tokens, Typography (Inter + tnum), Spacing, Shapes
 └── BatteryAlertApp.kt  # Manual dependency injection (AppContainer)
 ```
@@ -97,7 +107,7 @@ cd bhelth
 # Build debug APK
 ./gradlew assembleDebug
 
-# Run unit tests
+# Run all unit tests (29 tests across 5 test suites)
 ./gradlew testDebugUnitTest
 ```
 
@@ -105,10 +115,12 @@ cd bhelth
 
 ## 5. Technical Documentation
 
-- **[Specification (SPEC.json)](docs/SPEC.json):** Authoritative technical requirements, domain formulas, and design system contracts.
-- **[Progress Tracker (PROGRESS.md)](docs/PROGRESS.md):** Current status, build logs, and engineering handoff history.
-- **[Day 2 Transport Specifications (TRANSPORTS_DAY2.md)](docs/TRANSPORTS_DAY2.md):** Target connection specifications for UDP MAVLink, internal serial (`/dev/ttyS1`), and USB-Serial.
-- **[Day 2 Architecture Plan (DAY2_PLAN.md)](docs/DAY2_PLAN.md):** Integration roadmap for foreground services, text-to-speech, siren audio, and flight logging.
+- **[Company Requirements Traceability (FRD_TRACEABILITY.md)](docs/FRD_TRACEABILITY.md):** Full traceability matrix for company requirements FR-1.1 through FR-5.3 and review defect ledger.
+- **[Specification (DAY2_SPEC.json)](docs/DAY2_SPEC.json):** Authoritative technical specification, MAVLink mappings, alert matrix, and architecture.
+- **[Day 1 Archived Specification (SPEC.json)](docs/SPEC.json):** Day 1 foundation brief and domain contracts.
+- **[Progress Tracker (PROGRESS.md)](docs/PROGRESS.md):** Build status, step checklists, test logs, and engineering handoff logs.
+- **[Day 2 Transport Analysis (TRANSPORTS_DAY2.md)](docs/TRANSPORTS_DAY2.md):** Connection specifications for UDP MAVLink, internal serial (`/dev/ttySx`), and USB-Serial.
+- **[Day 2 Architecture Plan (DAY2_PLAN.md)](docs/DAY2_PLAN.md):** Multi-phase roadmap and hardware verification boundary.
 
 ---
 
