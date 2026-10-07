@@ -26,6 +26,7 @@ class InternalSerialTransport(
 
     override val id = "internal_serial"
     override val displayName = "Internal Serial ($devicePath)"
+    override val sessionSource = com.exodia.batteryalert.core.model.SessionSource.LIVE_INTERNAL
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -53,25 +54,20 @@ class InternalSerialTransport(
         val file = File(devicePath)
         if (!file.exists()) {
             _connectionState.value = ConnectionState.Error(
-                "Internal serial: device $devicePath not found. " +
-                    "Verify G20 firmware exposes a serial node for app access. " +
-                    "See docs/TRANSPORTS_DAY2.md. Physical FR-1.1 NOT_TESTED."
+                "Internal serial: Device $devicePath not found."
             )
             return
         }
 
         if (!file.canRead()) {
             _connectionState.value = ConnectionState.Error(
-                "ACCESS_DENIED: Cannot read $devicePath. " +
-                    "A vendor permission grant or USB serial route may be required. " +
-                    "Physical FR-1.1 is hardware-unverified."
+                "Internal serial access denied: Cannot read $devicePath."
             )
             return
         }
 
         _connectionState.value = ConnectionState.Error(
-            "Internal serial: $devicePath exists but requires termios baud configuration ($baudRate). " +
-                "Physical hardware NOT_TESTED until bench validation."
+            "Internal serial: $devicePath baud configuration required ($baudRate)."
         )
     }
 

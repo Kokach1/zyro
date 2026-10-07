@@ -92,7 +92,7 @@ class UsbSerialTransportTest {
         assertTrue(received is TelemetryFrame.Battery)
         val battery = (received as TelemetryFrame.Battery).value
         assertEquals(92, battery.remainingPercent)
-        assertEquals(42.0f, battery.currentA, 0.01f)
+        assertEquals(42.0f, battery.currentA!!, 0.01f)
 
         assertEquals(ConnectionState.Connected, transport.connectionState.value)
 

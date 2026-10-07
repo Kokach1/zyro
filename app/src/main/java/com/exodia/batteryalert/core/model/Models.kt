@@ -3,8 +3,8 @@ package com.exodia.batteryalert.core.model
 data class BatteryFrame(
     val timestampMs: Long,
     val cellVoltagesV: List<Float>,
-    val packVoltageV: Float,
-    val currentA: Float,
+    val packVoltageV: Float?,
+    val currentA: Float?,
     val consumedMah: Float? = null,
     val temperatureC: Float? = null,
     val remainingPercent: Int? = null,
@@ -18,8 +18,9 @@ data class BatteryFrame(
     val stale: Boolean = false,
     val receivedAtMonotonicMs: Long = timestampMs,
     val faultBitmask: Long = 0L,
-    val isCurrentKnown: Boolean = true,
-    val isFromFallback: Boolean = false
+    val isCurrentKnown: Boolean = (currentA != null),
+    val isFromFallback: Boolean = false,
+    val isCellsFresh: Boolean = !stale && cellVoltagesV.isNotEmpty()
 )
 
 data class PositionFrame(
@@ -88,6 +89,14 @@ sealed interface ConnectionState {
     data class Error(val message: String) : ConnectionState
 }
 
+enum class SessionSource(val displayName: String, val isLive: Boolean) {
+    LIVE_UDP("LIVE UDP", true),
+    LIVE_USB("LIVE USB", true),
+    LIVE_INTERNAL("LIVE SERIAL", true),
+    SIMULATOR("SIMULATOR", false),
+    REPLAY("REPLAY", false);
+}
+
 enum class BatteryChemistry { LI_ION, LIPO, LIHV, UNKNOWN }
 data class PackConfig(val cellCount: Int, val chemistry: BatteryChemistry, val detected: Boolean)
 enum class AlertLevel { NONE, NOTICE, WARNING, CRITICAL, EMERGENCY }
@@ -96,10 +105,12 @@ data class ActiveAlert(val level: AlertLevel, val reasons: List<AlertReason>, va
 
 data class BatteryAnalysis(
     val cellCount: Int, val cellVoltagesV: List<Float>, val restCellVoltagesV: List<Float>,
-    val minCellV: Float, val maxCellV: Float, val avgCellV: Float, val cellDeltaV: Float,
-    val packVoltageV: Float, val currentA: Float, val remainingPercent: Int,
+    val minCellV: Float?, val maxCellV: Float?, val avgCellV: Float?, val cellDeltaV: Float?,
+    val packVoltageV: Float?, val currentA: Float?, val remainingPercent: Int,
     val consumptionMahPerMin: Float?, val minutesRemaining: Float?, val temperatureC: Float?,
-    val isSagRapid: Boolean, val flightElapsedSec: Long
+    val isSagRapid: Boolean, val flightElapsedSec: Long,
+    val isCellsFresh: Boolean = true,
+    val isStale: Boolean = false
 )
 
 data class RtlAssessment(

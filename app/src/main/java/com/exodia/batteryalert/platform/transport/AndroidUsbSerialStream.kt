@@ -1,6 +1,7 @@
 package com.exodia.batteryalert.platform.transport
 
 import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import com.exodia.batteryalert.core.transport.ByteStreamSource
 import com.hoho.android.usbserial.driver.UsbSerialPort
@@ -17,12 +18,15 @@ class AndroidUsbSerialStream(
     private val baudRate: Int = 57600,
     private val dataBits: Int = 8,
     private val stopBits: Int = 1,
-    private val targetDevice: UsbDevice? = null
+    private val parity: Int = 0,
+    private val targetDevice: UsbDevice? = null,
+    private val portIndex: Int = 0,
 ) : ByteStreamSource {
 
     override val displayName: String
         get() = port?.device?.deviceName ?: "USB Serial ($baudRate baud)"
 
+    private var connection: UsbDeviceConnection? = null
     private var port: UsbSerialPort? = null
     private var _isOpen = false
     override val isOpen: Boolean get() = _isOpen
@@ -46,29 +50,49 @@ class AndroidUsbSerialStream(
             throw SecurityException("USB permission denied for device: ${driver.device.deviceName}")
         }
 
-        val connection = usbManager.openDevice(driver.device)
+        val conn = usbManager.openDevice(driver.device)
             ?: throw IOException("Failed to open USB device connection via UsbManager.")
 
-        val p = driver.ports.firstOrNull()
+        val p = driver.ports.getOrNull(portIndex) ?: driver.ports.firstOrNull()
             ?: throw IOException("No ports available on USB serial driver.")
 
-        p.open(connection)
-        val sb = when (stopBits) {
-            2 -> UsbSerialPort.STOPBITS_2
-            else -> UsbSerialPort.STOPBITS_1
-        }
-        p.setParameters(baudRate, dataBits, sb, UsbSerialPort.PARITY_NONE)
+        try {
+            p.open(conn)
+            val sb = when (stopBits) {
+                2 -> UsbSerialPort.STOPBITS_2
+                else -> UsbSerialPort.STOPBITS_1
+            }
+            val par = when (parity) {
+                1 -> UsbSerialPort.PARITY_ODD
+                2 -> UsbSerialPort.PARITY_EVEN
+                else -> UsbSerialPort.PARITY_NONE
+            }
+            p.setParameters(baudRate, dataBits, sb, par)
 
-        port = p
-        _isOpen = true
+            connection = conn
+            port = p
+            _isOpen = true
+        } catch (e: Exception) {
+            try { p.close() } catch (ignored: Exception) {}
+            try { conn.close() } catch (ignored: Exception) {}
+            throw IOException("Failed to configure USB serial port: ${e.message}", e)
+        }
     }
 
     override fun read(buffer: ByteArray, offset: Int, count: Int): Int {
         val p = port ?: throw IOException("USB serial port is not open")
         if (!_isOpen) return -1
         return try {
-            // Read with 200ms timeout
-            p.read(buffer, 200)
+            if (offset == 0 && count == buffer.size) {
+                p.read(buffer, 200)
+            } else {
+                val temp = ByteArray(count)
+                val n = p.read(temp, 200)
+                if (n > 0) {
+                    System.arraycopy(temp, 0, buffer, offset, n)
+                }
+                n
+            }
         } catch (e: Exception) {
             _isOpen = false
             throw e
@@ -82,6 +106,12 @@ class AndroidUsbSerialStream(
         } catch (ignored: Exception) {
         } finally {
             port = null
+        }
+        try {
+            connection?.close()
+        } catch (ignored: Exception) {
+        } finally {
+            connection = null
         }
     }
 }

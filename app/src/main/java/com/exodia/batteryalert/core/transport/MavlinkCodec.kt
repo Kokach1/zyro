@@ -259,49 +259,72 @@ class MavlinkCodec(
         val rawVoltages = msg.voltages() ?: emptyList()
         val rawExt = msg.voltagesExt() ?: emptyList()
 
-        // Check for aggregate-only form:
-        // Slot 0 holds total pack voltage (or >65534 continuation), and remaining slots are 65535.
         val slot0 = if (rawVoltages.isNotEmpty()) rawVoltages[0] else 65535
         val allOtherBaseMissing = rawVoltages.drop(1).all { it == 65535 }
         val allExtMissingOrZero = rawExt.all { it == 0 || it == 65535 }
 
-        val isAggregate = slot0 in 1..65534 && allOtherBaseMissing && allExtMissingOrZero && slot0 > 10000 // > 10V is clearly pack aggregate, not single cell
+        val isUnsupportedCells = (slot0 == 0 && allOtherBaseMissing && allExtMissingOrZero)
+        val isPureAggregateSlot0 = (slot0 in 1..65534 && allOtherBaseMissing && allExtMissingOrZero && slot0 > 10000)
 
         val cellVoltages = mutableListOf<Float>()
-        val packVoltage: Float
+        val packVoltage: Float?
+        val isAggregate: Boolean
 
-        if (isAggregate) {
-            // Aggregate pack representation
+        if (isUnsupportedCells) {
+            isAggregate = true
+            packVoltage = null
+        } else if (isPureAggregateSlot0) {
+            isAggregate = true
             packVoltage = slot0 / 1000f
         } else {
-            // Per-cell representation:
-            // 1..10 from voltages: 65535 = missing
-            for (v in rawVoltages) {
+            var lastActiveIndex = -1
+            for (i in 0 until minOf(10, rawVoltages.size)) {
+                val v = rawVoltages[i]
                 if (v in 0 until 65535) {
-                    cellVoltages.add(v / 1000f)
+                    lastActiveIndex = maxOf(lastActiveIndex, i)
                 }
             }
-            // 11..14 from voltagesExt:
-            // 0 = unsupported (skip)
-            // 1 = measured near-zero cell (0.001V) — preserve so it causes immediate alert/cell fault!
-            // 2..65534 = mV / 1000
-            // 65535 = missing (skip)
-            for (v in rawExt) {
-                when (v) {
-                    0 -> {} // unsupported
-                    1 -> cellVoltages.add(0.001f) // measured ~0V cell, critical safety failure
-                    in 2..65534 -> cellVoltages.add(v / 1000f)
-                    65535 -> {} // missing
+            for (j in 0 until minOf(4, rawExt.size)) {
+                val v = rawExt[j]
+                if (v in 1 until 65535) {
+                    lastActiveIndex = maxOf(lastActiveIndex, 10 + j)
                 }
             }
-            packVoltage = if (cellVoltages.isNotEmpty()) cellVoltages.sum() else 0f
+
+            if (lastActiveIndex == -1) {
+                isAggregate = true
+                packVoltage = if (slot0 in 1..65534) slot0 / 1000f else null
+            } else {
+                isAggregate = false
+                for (idx in 0..lastActiveIndex) {
+                    if (idx < 10) {
+                        val v = if (idx < rawVoltages.size) rawVoltages[idx] else 65535
+                        if (v == 65535) {
+                            cellVoltages.add(Float.NaN)
+                        } else {
+                            cellVoltages.add(v / 1000f)
+                        }
+                    } else {
+                        val extIdx = idx - 10
+                        val v = if (extIdx < rawExt.size) rawExt[extIdx] else 65535
+                        if (v == 0 || v == 65535) {
+                            cellVoltages.add(Float.NaN)
+                        } else if (v == 1) {
+                            cellVoltages.add(0.001f)
+                        } else {
+                            cellVoltages.add(v / 1000f)
+                        }
+                    }
+                }
+                val validCells = cellVoltages.filter { !it.isNaN() }
+                packVoltage = if (validCells.isNotEmpty()) validCells.sum() else if (slot0 in 1..65534) slot0 / 1000f else null
+            }
         }
 
-        val temp = if (msg.temperature() != 32767) msg.temperature() / 100f else null
-        val current = if (msg.currentBattery() != -1) msg.currentBattery() / 100f else 0f
-        val currentKnown = msg.currentBattery() != -1
+        val temp = if (msg.temperature() != 32767 && msg.temperature() != -32768) msg.temperature() / 100f else null
+        val current = if (msg.currentBattery() != -1) msg.currentBattery() / 100f else null
         val percent = if (msg.batteryRemaining() in 0..100) msg.batteryRemaining() else null
-        val consumed = if (msg.currentConsumed() != -1) msg.currentConsumed().toFloat() else null
+        val consumed = if (msg.currentConsumed() != -1 && msg.currentConsumed() >= 0) msg.currentConsumed().toFloat() else null
 
         val frame = BatteryFrame(
             timestampMs = nowMs,
@@ -316,7 +339,8 @@ class MavlinkCodec(
             systemId = packet.systemId,
             componentId = packet.componentId,
             faultBitmask = msg.faultBitmask()?.value()?.toLong() ?: 0L,
-            isCurrentKnown = currentKnown
+            isCurrentKnown = (current != null),
+            isCellsFresh = !isAggregate && cellVoltages.any { !it.isNaN() }
         )
         return TelemetryFrame.Battery(frame)
     }
@@ -334,8 +358,8 @@ class MavlinkCodec(
             return null // No battery information in SYS_STATUS
         }
 
-        val packV = if (voltMv != 65535) voltMv / 1000f else 0f
-        val current = if (currCa != -1) currCa / 100f else 0f
+        val packV = if (voltMv != 65535) voltMv / 1000f else null
+        val current = if (currCa != -1) currCa / 100f else null
         val percent = if (remPct in 0..100) remPct else null
 
         val frame = BatteryFrame(
@@ -348,7 +372,7 @@ class MavlinkCodec(
             isAggregateOnly = true,
             systemId = packet.systemId,
             componentId = packet.componentId,
-            isCurrentKnown = currCa != -1,
+            isCurrentKnown = (current != null),
             isFromFallback = true
         )
         return TelemetryFrame.Battery(frame)

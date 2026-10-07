@@ -54,8 +54,8 @@ class MavlinkCodecTest {
         assertEquals(14, battery.cellVoltagesV.size)
         assertEquals(3.850f, battery.cellVoltagesV[0], 0.001f)
         assertEquals(3.850f, battery.cellVoltagesV[13], 0.001f)
-        assertEquals(53.890f, battery.packVoltageV, 0.01f)
-        assertEquals(45.0f, battery.currentA, 0.01f)
+        assertEquals(53.890f, battery.packVoltageV!!, 0.01f)
+        assertEquals(45.0f, battery.currentA!!, 0.01f)
         assertEquals(75, battery.remainingPercent)
         assertEquals(28.5f, battery.temperatureC!!, 0.01f)
         assertEquals(1200f, battery.consumedMah!!, 0.1f)
@@ -109,7 +109,7 @@ class MavlinkCodecTest {
         val battery = (frames[0] as TelemetryFrame.Battery).value
         assertTrue(battery.isAggregateOnly)
         assertTrue(battery.cellVoltagesV.isEmpty())
-        assertEquals(52.0f, battery.packVoltageV, 0.01f)
+        assertEquals(52.0f, battery.packVoltageV!!, 0.01f)
         assertNull(battery.temperatureC)
         assertFalse(battery.isCurrentKnown)
     }

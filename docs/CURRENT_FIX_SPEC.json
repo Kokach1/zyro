@@ -1,0 +1,1053 @@
+{
+  "title": "ZYRO - Current authoritative repair and implementation prompt",
+  "version": "2026-10-07-v2-in-place-alerts",
+  "task": "Implement these fixes in the existing native Android Kotlin/Jetpack Compose project. This is an execution prompt, not a request for another review, plan-only response or rewritten dashboard. Finish working software paths, tests and evidence, while reporting any genuine vendor/hardware blockers honestly.",
+  "repository": {
+    "url": "https://github.com/Kokach1/zyro",
+    "audited_commit": "34924586dd134f60c54cfa0a4a09546d8336b262",
+    "audited_commit_time": "2026-10-07T20:17:07+05:30",
+    "instruction": "Inspect the actual checkout before editing. If HEAD has advanced, reconcile each issue against current executable code; preserve working fixes and do not blindly apply stale line numbers. File paths below are relative to app/src/main/java/com/exodia/batteryalert unless a full repository path is given."
+  },
+  "instruction_precedence": {
+    "follow_now": "THIS JSON IS THE CURRENT INSTRUCTION TO FOLLOW. Previous Day 2 files and older prompts are superseded. Do not reopen or follow DAY2_SPEC.json, DAY2_SPEC_v1.json, DAY2_PLAN.md or old SPEC.json to decide what to implement. They have no operative authority except for requirements explicitly restated in this JSON.",
+    "order": [
+      "This prompt, including the latest UI overrides",
+      "Company FRD functionality and thresholds as restated here, subject to the explicit visual override",
+      "Actual current source code as implementation evidence, not as requirements",
+      "Old planning files only as historical records, never as a reason to restore obsolete behavior"
+    ],
+    "update_repository_guidance": "Put this prompt into a new docs/CURRENT_FIX_SPEC.json and make docs/PROGRESS.md and the current root guidance point to it. Mark older Day 2/spec/plan files SUPERSEDED and historical without destroying their history. Update affected README and traceability claims. No resume prompt, auto-generated plan or handoff may tell the next tool to follow the older files.",
+    "visual_override": "Critical and Emergency must use the existing dashboard with a red theme and warning/action labels at the battery percentage. Remove the full-screen modal, flashing red screen and covering overlays for these levels. Do not keep FULLSCREEN_FRD as the default, do not make an automatic fallback to it, and do not add a user-visible mode switch to bring it back.",
+    "compliance_truth": "This is an intentional user-requested presentation change from the company matrix, which literally asks for a Critical full-screen red modal and Emergency flashing red screen. Record the deviation in internal traceability/documentation. Do not claim literal full-FRD visual compliance. Preserve all functional thresholds, action prompts, persistent safety state, audio and haptics. Do not put the compliance explanation on the dashboard."
+  },
+  "non_negotiable_rules": [
+    "Keep the single-screen monitoring dashboard and existing visual identity. No web app, no new framework, no wholesale rewrite, no decorative redesign.",
+    "Strictly professional UI. No emojis, emoji-style Unicode pictograms, playful status strings, decorative glyphs, celebratory graphics, stickers or gratuitous animation anywhere in application UI, notifications, permission explanations, errors or simulator controls. Use short plain text and native vector icons only where they perform a real control function.",
+    "Remove NOT_TESTED, not tested and bench-test status suffixes from user-facing connection descriptions and transport error strings. Keep accurate concise operational errors such as USB permission denied, serial access denied or missing path. Removing wording is not permission to claim compatibility or testing.",
+    "Remove the entire caption beside Simulator, including Demo only - not a real drone connection and similar variants. The button label is exactly Simulator and the button itself must be centered horizontally. Retain the concise SIMULATOR source label in the active dashboard; demo data must never be labelled LIVE.",
+    "Do not add unnecessary explanation text, duplicate warnings, implementation-step labels, developer TODOs or marketing copy to the monitoring screen. Put technical evidence, assumptions and hardware limitations in documentation or diagnostic details, not constant dashboard captions.",
+    "Cold launch shows Connection / Setup with no active transport and no synthetic values. Starting simulation requires the explicit Simulator button. Connection failure never starts simulator or replay automatically.",
+    "No silent defaults for load-bearing live settings: no guessed G20 serial path, baud, VID/PID, battery capacity, chemistry, vehicle identity or pump channel. Editable generic suggestions may exist if treated as generic and requiring selection/confirmation, not vendor facts.",
+    "All software claims require reachable executable implementations. Constants, permissions, unused interfaces, mock tests and documents do not count as completed integrations.",
+    "Do not send any aircraft, arming, disarming, RTL, parameter-setting, servo or pump commands during development, simulator or replay. Implement pump OFF behind the explicit gates below; physical bench operation requires separate operator approval and confirmed mapping.",
+    "Never show missing, unknown or stale data as healthy zero, measured cells, a confirmed home, safe endurance or assured return. Preserve legitimate measured zero values.",
+    "Do not claim tests, build, screenshots, hardware compatibility or physical pump cutoff passed unless actually executed and supported by evidence. A missing local JDK/SDK is an environment blocker, not proof the code is broken."
+  ],
+  "company_functional_requirements": [
+    {
+      "id": "FR-1.1",
+      "requirement": "Establish serial connection to Skydroid G20 internal telemetry from GR01 via USB-UART or an accessible internal /dev/ttySx interface. UDP is useful but does not replace the serial requirement."
+    },
+    {
+      "id": "FR-1.2",
+      "requirement": "Decode MAVLink BATTERY_STATUS for measured cell/pack voltage, current, remaining capacity and temperature; SYS_STATUS for fallback system voltage/current; GLOBAL_POSITION_INT for GPS/altitude and distance to verified home/RTL point."
+    },
+    {
+      "id": "FR-1.3",
+      "requirement": "Detect battery chemistry and cell configuration from initial stable baseline voltage evidence. Resolve uncertainty honestly rather than asserting that overlapping voltage ranges identify chemistry uniquely."
+    },
+    {
+      "id": "FR-2.1",
+      "requirement": "Compute resting cell voltage Vrest = Vmeasured + I * Ri using known current and validated per-cell resistance configuration."
+    },
+    {
+      "id": "FR-2.2",
+      "requirement": "Compute delta V = Vmax - Vmin from measured cells; trigger an immediate independent cell fault when delta > 0.08 V."
+    },
+    {
+      "id": "FR-2.3",
+      "requirement": "Track consumption in mAh/min and estimate remaining operational time under present load, with current integration when cumulative consumed-mAh telemetry is unavailable."
+    },
+    {
+      "id": "FR-3.1",
+      "requirement": "Required battery percent = distance_to_home_m / cruising_speed_mps * discharge_rate_percent_per_second + 15 percentage points. Continuously evaluate only with suitable inputs."
+    },
+    {
+      "id": "FR-3.2",
+      "requirement": "Persistent un-dismissable Critical warning when remaining percentage <= required dynamic RTL percentage. Under this prompt persistent means an in-place safety alert, not a full-screen dialog."
+    },
+    {
+      "id": "FR-5.1",
+      "requirement": "Provide an optional automatic spraying-pump OFF interlock at <=20% with confirmed hardware mapping and confirmation of outcome, independent of the alert UI."
+    },
+    {
+      "id": "FR-5.2",
+      "requirement": "Implement periodic battery TextToSpeech, default every 60 seconds, such as Battery 48%, Cell average 3.82 volts, omitting unknown or stale values."
+    },
+    {
+      "id": "FR-5.3",
+      "requirement": "Continuously log voltage curves, current, temperature and corresponding GPS with timestamps/source/quality for post-flight diagnosis."
+    }
+  ],
+  "alert_matrix": [
+    {
+      "level": "NOTICE",
+      "trigger": "remainingPercent <= 30, unless a higher battery tier wins",
+      "visual": "Compact yellow top-bar notice; dashboard remains visible",
+      "audio_haptic": "Single chime and short vibration on entry, not each telemetry frame",
+      "action_prompt": "Plan to return soon"
+    },
+    {
+      "level": "WARNING",
+      "trigger": "remainingPercent <= 20 OR measured min cell <= 3.65 V",
+      "visual": "In-place amber treatment/border that does not cover or hide telemetry; any retained subtle border pulse respects reduced motion",
+      "audio_haptic": "Repeated voice alert",
+      "action_prompt": "Warning, low battery"
+    },
+    {
+      "level": "CRITICAL",
+      "trigger": "remainingPercent <= dynamic required RTL percentage OR measured min cell <= 3.50 V",
+      "visual": "Static red dashboard theme and persistent warning/action at percentage; no covering modal, no blinking screen",
+      "audio_haptic": "Continuous high-pitch siren and strongest supported vibration, with scheduling that does not silence higher-priority safety speech",
+      "action_prompt": "Mandatory RTL recommended!",
+      "literal_frd_visual_deviation": "FRD asks for full-screen red modal; explicitly overridden by latest user request."
+    },
+    {
+      "level": "EMERGENCY",
+      "trigger": "measured min cell <= 3.40 V OR credible rapid voltage sag",
+      "visual": "Static red dashboard theme, percentage still visible, persistent LAND NOW/action label; no full-screen blink, flashing background or hiding dashboard",
+      "audio_haptic": "Continuous repeated voice command with controlled gaps, no overlapping speech queues",
+      "action_prompt": "Land immediately",
+      "literal_frd_visual_deviation": "FRD asks for flashing red screen; explicitly overridden by latest user request."
+    },
+    {
+      "level": "CELL_FAULT",
+      "trigger": "measured delta > 0.08 V, immediate and independent of battery tier",
+      "visual": "Reachable in-place orange fault treatment and compact fault detail; retain cell numbering/delta and coexist with red Critical/Emergency without covering dashboard",
+      "audio_haptic": "Voice alert; schedule safely alongside highest battery priority",
+      "action_prompt": "Cell voltage imbalance - land & inspect battery"
+    }
+  ],
+  "implementation_groups": [
+    {
+      "id": "FIX-01",
+      "title": "Restore in-place red-theme Critical/Emergency presentation",
+      "files_to_inspect_or_change": [
+        "ui/monitor/BatteryMonitorScreen.kt",
+        "ui/monitor/AlertPresentation.kt",
+        "ui/monitor/BatteryUiState.kt",
+        "ui/theme/Theme.kt"
+      ],
+      "current_source_evidence": [
+        "BatteryDashboard currently calls FrdAlertOverlay at approximately lines 98-103; the dispatcher routes Critical to FullScreenRedModal and Emergency to FlashingRedOverlay.",
+        "Hero/HeroRingReadout already provides the live percentage and alert label at approximately lines 386-433. Preserve and improve that component rather than replacing it."
+      ],
+      "required_changes": [
+        "Remove the Critical/Emergency covering Box and infinite flashing animation path from dashboard rendering. Delete or retire the obsolete full-screen composables so there is no hidden automatic route back to them.",
+        "Create severity-aware semantic theme tokens or equivalent state-derived colors: red-tinted dark background/surfaces, red percentage/outline accents and high-contrast readable values for Critical/Emergency. Red-theme means tinting the dashboard itself, not painting a red sheet over it.",
+        "Keep the large percentage centered, live, readable and visible with a warning label attached directly below/within its hero. Show RETURN NOW for Critical and LAND NOW for Emergency, retaining the required action message in a compact adjacent line if it fits without duplicate noise.",
+        "Keep flight time, home distance, return-home time, measured cells, current and temperature visible during every alert. If individual data is stale, show the stale treatment rather than covering it.",
+        "Keep the existing ring geometry and RTL marker. Suppress misleading green healthy fill during danger. Use a consistent restrained outline/accent, no pulsing percentage, cell blinking, sparkle, glow-heavy treatment or screen flash.",
+        "Keep severity and cell fault independently visible. Red danger theme takes priority; orange cell fault remains a small secondary border/chip/detail with delta and affected cells.",
+        "Persistent means no swipe, tap, Back, dialog dismissal or navigation trick clears an active alert. Do not trap every touch behind a modal. Settings/safe monitoring controls can remain usable. Explicit Stop ends monitoring with correct cleanup, not an unnoticed dismissal."
+      ],
+      "acceptance": [
+        "At Critical and Emergency screenshots show the dashboard, percentage, warning label and all essential metrics. No full-screen red modal or flashing overlay exists.",
+        "Critical/Emergency remain visible while unsafe; state recovery is controlled by FIX-13.",
+        "Compose UI tests check percentage/label visibility, absence of covering dialog, coexistence of CELL_FAULT and severe tier, and no dismissal action."
+      ]
+    },
+    {
+      "id": "FIX-02",
+      "title": "Professional language and centered Simulator control",
+      "files_to_inspect_or_change": [
+        "ui/monitor/BatteryMonitorScreen.kt: ConnectionSetupInline and StatusBar",
+        "ui/setup/ConnectionSetupSheet.kt",
+        "ui/debug/SimulatorControlSheet.kt",
+        "core/transport/UsbSerialTransport.kt",
+        "core/transport/InternalSerialTransport.kt",
+        "app/src/main/res",
+        "future notification/error/TTS UI strings"
+      ],
+      "current_source_evidence": [
+        "Inline setup has NOT_TESTED in USB/internal SetupNote text, a warning-symbol prefix on errors, a triangle-prefixed Simulator label and a Demo only caption in a Row.",
+        "Bottom sheet also prefixes Simulator with a Unicode play glyph and includes redundant demo instructions. Transport errors themselves append hardware test-status prose."
+      ],
+      "required_changes": [
+        "Replace both Simulator labels with plain Simulator. Use a full-width container with Alignment.CenterHorizontally or an equivalent layout so the button itself, not button-plus-caption, is centered. Keep it quieter and smaller than Start Monitoring without making the touch target less than 48dp.",
+        "Remove the complete adjacent simulation-only caption, not just its wording. Apply the same clean layout in inline setup and the alternate setup sheet.",
+        "Remove every not tested / NOT_TESTED suffix from connection descriptions and runtime error presentation. Do not replace it with Tested, Ready, Supported on G20 or similar unsupported assurance.",
+        "Preserve useful UDP endpoint details and concise source-specific connection guidance. Prefer descriptions such as UDP: Listening address and port, USB: Connect via USB OTG and select a serial device, Internal: Enter the device path and baud rate. Preserve real settings and errors.",
+        "Remove warning/play pictograms embedded in Text strings. Audit all user-facing strings, content descriptions, resource strings, notifications and future additions for emojis and decorative Unicode. Native functional vector icons are allowed; units, percent signs and essential math notation are not emojis.",
+        "Keep errors actionable and short: permission denied, no compatible device, invalid port, serial access denied, file unavailable. Full technical causes can be logged in diagnostics.",
+        "Do not change source labels to hide data provenance. Active SIMULATOR and REPLAY badges remain required, but do not add explanatory paragraphs beside the button."
+      ],
+      "acceptance": [
+        "No emoji or decorative pictogram in any app UI text. Simulator button text is exactly Simulator.",
+        "Button center X equals its setup container center X, including different screen sizes/font scales. No caption sibling remains.",
+        "Search resources/strings for forbidden test-status text and verify no user-facing transport exception reintroduces it.",
+        "UDP details remain present; real permission/configuration failures remain visible."
+      ]
+    },
+    {
+      "id": "FIX-03",
+      "title": "One editable setup implementation and truthful source identity",
+      "files_to_inspect_or_change": [
+        "ui/setup/ConnectionSetupSheet.kt",
+        "ui/monitor/BatteryMonitorScreen.kt: ConnectionSetupInline",
+        "ui/monitor/BatteryMonitorViewModel.kt",
+        "core/config/TransportConfig.kt",
+        "BatteryAlertApp.kt"
+      ],
+      "current_source_evidence": [
+        "ConnectionSetupSheet Start Monitoring passes TransportConfig(), whose default kind is SIMULATOR; ViewModel then forces isSimulator=false.",
+        "Inline setup stores port/path strings but has no editing controls; internal serial uses /dev/ttyS3 when blank and replay stays blank."
+      ],
+      "required_changes": [
+        "Extract shared setup state/validation/components used by both inline and sheet versions. Do not leave a secondary route with default simulator config.",
+        "Make real source kind explicit and required. Remove the simulator default from a real-connect API, or use separate typed RealConnectionConfig and SimulationStart so invalid source selection cannot compile into a live session. Reject SIMULATOR in startRealTransport defensively.",
+        "Introduce SessionSource LIVE_UDP, LIVE_USB, LIVE_INTERNAL, SIMULATOR and REPLAY, derived from actual active session/transport metadata rather than a caller boolean. Startup, rotation, reconnect and replay must preserve this truth.",
+        "Provide editable UDP bind address/port and optional sender restriction; USB device/port/baud/data bits/stop bits/parity; internal path/baud; replay document selection; vehicle/system and allowed component selection; validated battery capacity/chemistry confirmation, cruising speed and resistance in an advanced section.",
+        "Do not silently replace invalid port input with 14550. Show validation and disable Start until valid. No guessed /dev/ttyS3 for empty internal path. Generic defaults are editable suggestions, not confirmed G20 settings.",
+        "Persist validated settings with a versioned ConfigRepository/DataStore or equivalent. No auto-start on cold launch, even when prior settings exist. Keep simulator-only Agras presets out of unconfirmed live configuration.",
+        "Use Android document picker/SAF for replay and log exports; retain URI permissions where appropriate instead of expecting inaccessible raw filesystem paths.",
+        "Connection/session state must reflect real start failures emitted asynchronously by transports. Factory creation success is not connection success. Expose Connecting/Error distinctly and do not attach a misleading live session to a failed transport.",
+        "Before source changes stop and join the previous receiver/service session, clear analysis and identity state, then start exactly one new session. Subscribe before a transport can emit initial Home/Battery frames or use a bounded replay strategy with defined semantics. Avoid AppContainer.startTransport followed by a duplicate repository transport.start."
+      ],
+      "acceptance": [
+        "Both setup entry points configure and start the selected real transport or explicitly start Simulator. Neither can label simulation LIVE.",
+        "Invalid config does not invoke transport start. Replay shows REPLAY, including after rotation.",
+        "Blank internal path remains an actionable validation error. Selected USB device/port and edited UDP values reach actual platform constructors.",
+        "No auto demo, no auto replay, no simulator fallback; persisted configuration does not silently start hardware."
+      ]
+    },
+    {
+      "id": "FIX-04",
+      "title": "Wire the real Android USB serial adapter end to end",
+      "files_to_inspect_or_change": [
+        "platform/transport/AndroidUsbSerialStream.kt",
+        "core/transport/UsbSerialTransport.kt",
+        "core/transport/TelemetryTransport.kt: TransportFactory",
+        "BatteryAlertApp.kt",
+        "core/config/TransportConfig.kt",
+        "app/src/main/AndroidManifest.xml"
+      ],
+      "current_source_evidence": [
+        "TransportFactory constructs UsbSerialTransport without streamSource. AndroidUsbSerialStream exists but no app caller constructs/passes it.",
+        "AndroidUsbSerialStream only checks hasPermission; no permission request, selected port or detach lifecycle is wired. It chooses the first driver/port and does not honor general read offset/count."
+      ],
+      "required_changes": [
+        "Keep core Android-free. Add a platform dependency provider using Application context/UsbManager; inject the selected concrete ByteStreamSource into the core transport factory. Pass all serial settings and selected device/port explicitly.",
+        "Enumerate supported USB serial drivers/devices and port indices; show stable descriptors/VID/PID in setup as observed device details. Handle multiple devices without blindly selecting the first. Do not invent G20 VID/PID.",
+        "Implement UsbManager.requestPermission with an explicit package-scoped PendingIntent and correctly scoped receiver/flags for the supported Android versions. Re-check grant and selected device on result; denied/cancelled stays a concise error, never simulator. Verify platform requirements for Android 13 and the project target.",
+        "Handle attached/detached devices and permission loss. Stop/close the exact selected connection on detach, cancel and join reader jobs, unregister receivers safely; reconnect requires fresh selected-source battery telemetry.",
+        "Open/configure the actual port with chosen baud, data/stop bits and parity; retain and close UsbDeviceConnection as well as UsbSerialPort in all failure/stop paths. Respect ByteStreamSource.read(buffer, offset, count) contract and finite read timeouts.",
+        "Feed real bytes into the existing MavlinkCodec, with source filters and monotonic receive timestamps. Test fragmented, concatenated, noisy and malformed streams.",
+        "Socket/port opened does not mean Connected. Require valid battery data from the selected source. An unsupported driver needs a truthful actionable error; do not stub success."
+      ],
+      "acceptance": [
+        "An integration test using injected Android/platform boundaries proves the app factory supplies a non-null real stream adapter when USB is selected. Mock core transport tests alone do not satisfy this.",
+        "Permission grant/deny, no device, multiple devices, detach, reconnect and stop all have tests and resource cleanup.",
+        "Actual compatible USB bench/device exercise remains a separate evidence tier; report it pending if hardware is unavailable."
+      ]
+    },
+    {
+      "id": "FIX-05",
+      "title": "Implement and wire accessible internal serial, not node-check-only code",
+      "files_to_inspect_or_change": [
+        "core/transport/InternalSerialTransport.kt",
+        "core/transport/ByteStreamSource.kt",
+        "core/transport/TelemetryTransport.kt",
+        "platform/transport: new internal serial adapter/bridge",
+        "BatteryAlertApp.kt",
+        "core/config/TransportConfig.kt"
+      ],
+      "current_source_evidence": [
+        "InternalSerialTransport accepts streamSource, but factory supplies none. Its fallback checks existence/readability then returns termios-needed error even for an accessible node."
+      ],
+      "required_changes": [
+        "Implement a real ByteStreamSource using a verified vendor SDK or a real bounded JNI/POSIX termios bridge as appropriate for available interfaces. Configure selected baud/raw serial parameters, open actual device, read with finite waits and close on cancellation. A plain FileInputStream without baud configuration is not complete serial setup.",
+        "Make the bridge an actual built dependency with supported target ABI/native packaging when JNI is used. Inspect current dependency API before assuming a library method exists. Wire it through the same platform provider as USB.",
+        "Require an explicit user-entered/confirmed node and baud. Preserve ACCESS_DENIED and unsupported-vendor errors. Do not use root, su, broad chmod, SELinux changes or guessed ports to bypass firmware permissions.",
+        "Keep core bridge contract testable and no-op adapters out of production paths. If vendor access details are unavailable, complete the executable generic adapter and document the exact remaining access/SDK requirement, without saying G20 is proven.",
+        "Use the shared decoder/source selection/freshness rules, close and join on stop/reconnect, and classify EOF as loss/completion rather than silently remaining Connected."
+      ],
+      "acceptance": [
+        "Selecting Internal with a valid accessible configured node invokes real open/baud/read code, not a guaranteed error branch.",
+        "Tests exercise bridge injection, open/read, malformed data, access denied, baud validation, cancellation and EOF.",
+        "Vendor-specific physical access unresolved is recorded as a hardware/interface blocker, not hidden as a tested serial connection."
+      ]
+    },
+    {
+      "id": "FIX-06",
+      "title": "MAVLink correctness and lossless field contracts",
+      "files_to_inspect_or_change": [
+        "core/transport/MavlinkCodec.kt",
+        "core/model/Models.kt",
+        "core/transport/UdpTransport.kt",
+        "core/transport/UsbSerialTransport.kt",
+        "core/transport/InternalSerialTransport.kt",
+        "core/transport/ReplayTransport.kt"
+      ],
+      "current_source_evidence": [
+        "Shared MAVLink 1/2 codec exists; preserve it and its useful tests. Current mapping compresses missing cell slots, maps unknown current/pack voltage to zero and relies on flags that downstream logic ignores.",
+        "Transport constructors pass system ID but do not propagate configured component ID into codec."
+      ],
+      "required_changes": [
+        "Preserve one shared codec across UDP, USB, internal serial and .tlog replay. Use authoritative MAVLink common dialect message definitions/library APIs to verify units, sentinels, extensions and aggregate-pack representations. Do not guess vendor-specific dialects.",
+        "Represent cell voltage slots with stable physical indices and nullable values/quality. Preserve base-cell measured 0 V, and the documented extension near-zero encoding; missing/unsupported slots must not shift C11 into C9 or change the pack count.",
+        "Support 6S/12S/14S and partial cell arrays without inventing equal cells. Decode aggregate pack voltage as aggregate only, including defined continuation/overflow representation where the protocol permits; test supported forms against official definitions.",
+        "Represent unknown current, pack voltage, percent, consumed mAh and temperature as null/unavailable or equivalent strongly enforced quality types. Distinguish legitimate zero current, zero percent and zero-voltage fault from missing values. Remove downstream reliance on 0-as-unknown.",
+        "Carry system/component/battery ID, message origin, monotonic receive time, transport source, field ages and per-field quality into repository. Reject non-finite and protocol-invalid data without disguising actual fault zeros.",
+        "Propagate selected system/component policy to every codec. Allow explicit autopilot/battery component sets rather than wrongly dropping legitimate separate battery components. In multi-source discovery do not combine data before user selection.",
+        "Retain CRC_EXTRA, fragmentation, resynchronization and signed-message policy. Reject unsupported incompatibility flags; verify signing through the actual library when configured, never advertise authenticated signing from merely noticing a signature trailer.",
+        "Decode and retain HEARTBEAT arm/autopilot state, HOME_POSITION and COMMAND_ACK. ACK parsing does not itself implement a command writer or confirm physical pump state."
+      ],
+      "acceptance": [
+        "Encoded MAVLink 1/2 fixtures exercise units, sentinels, cell 0, missing middle slots, 14S extensions, aggregate pack, partial messages, CRC corruption, truncated/fragmented packets, source filters and configured signing policy.",
+        "Unknown current never becomes a displayed/calculated healthy 0 A; aggregate-only telemetry never creates measured per-cell tiles or a false 0.00V delta."
+      ]
+    },
+    {
+      "id": "FIX-07",
+      "title": "Merge SYS_STATUS as a bounded fallback, not destructive replacement",
+      "files_to_inspect_or_change": [
+        "core/telemetry/TelemetryRepository.kt",
+        "core/transport/MavlinkCodec.kt",
+        "core/model/Models.kt"
+      ],
+      "current_source_evidence": [
+        "Repository replaces its whole battery field for every TelemetryFrame.Battery. SYS_STATUS emits batteryId=0 with no cells/temp/counter, erasing richer BATTERY_STATUS readings."
+      ],
+      "required_changes": [
+        "Maintain a field-level accumulator keyed by selected vehicle and pack identity. BATTERY_STATUS is primary for its pack fields; SYS_STATUS contributes only defined aggregate/system fallback fields when primary data is absent/stale under a documented precedence.",
+        "Do not overwrite fresh cells, temperature or consumed-mAh counter with absent fields from SYS_STATUS. Do not turn retention into indefinite freshness: retained primary fields keep their original timestamps and expire independently.",
+        "Never arbitrarily attach a system fallback to every pack in a multi-battery setup. Define association explicitly; if ambiguous retain a distinct system aggregate record and unavailable per-pack fields.",
+        "Validate incoming measurements before merge; keep current/percent source and age visible in diagnostics. Out-of-order updates must not refresh or overwrite newer fields.",
+        "Consumption history is updated once per actual relevant counter/current observation, not every UI sample or unrelated GPS/SYS_STATUS callback."
+      ],
+      "acceptance": [
+        "Alternate BATTERY_STATUS and SYS_STATUS fixtures preserve measured cells/temp/counter while fallback fills only valid missing fields.",
+        "Fresh SYS_STATUS does not refresh old measured cell timestamps or conceal battery-primary loss. Multiple pack IDs do not collapse into one."
+      ]
+    },
+    {
+      "id": "FIX-08",
+      "title": "Per-field freshness, central watchdog and honest stale presentation",
+      "files_to_inspect_or_change": [
+        "core/telemetry/TelemetryRepository.kt",
+        "core/model/Models.kt",
+        "ui/monitor/BatteryMonitorViewModel.kt",
+        "ui/monitor/BatteryUiState.kt",
+        "ui/monitor/AlertPresentation.kt",
+        "ui/monitor/BatteryMonitorScreen.kt",
+        "core/config/AppConfig.kt"
+      ],
+      "current_source_evidence": [
+        "Repository clears stale and sets Connected for Position frames. It ignores injected now and has no central watchdog. ViewModel does not carry stale ages into UI."
+      ],
+      "required_changes": [
+        "Track last valid selected-source message, battery fields, position and heartbeat separately using elapsedRealtime/monotonic clock for live age, plus wall UTC only for human/log time. Remote/simulator timestamps do not become live receive-clock truth.",
+        "Run a session-owned independent watchdog that fires when packets stop entirely, not only inside read loops after a new packet. Use injectable clock and configurable age thresholds. Existing 3s battery/heartbeat and 5s position are engineering defaults, not company-mandated values.",
+        "GPS/heartbeat traffic cannot mark battery fresh or clear battery loss. Valid battery reception does not automatically make GPS/home fresh. Expose link/source connectivity and battery health separately.",
+        "Suspend new RTL/endurance/sag decisions when their required inputs are stale. Preserve already-latched Critical/Emergency and cell-fault states with an additional TELEMETRY LOST/STALE indicator rather than replacing danger with a mild warning.",
+        "Render last-known values only with clear dimming and a concise stale/age marker, or use -- for unavailable derived numbers. Do not keep a stale RTL marker/time-left as though current. Missing on first connection must not show 0%.",
+        "Require valid selected-source recovery data, not socket reopen or GPS alone, before restoring LIVE battery presentation. No stale sample may clear a safety alert.",
+        "Handle wall-clock change, sleep, pause/replay virtual time and source switches explicitly. All timers/reset state belong to the session."
+      ],
+      "acceptance": [
+        "GPS-only, heartbeat-only and complete silence tests expire battery correctly. Position loss independently disables distance-based RTL.",
+        "Link loss during Critical/Emergency preserves red warning and its reason while marking freshness loss.",
+        "Screenshots show honest missing/stale values and no false LIVE safe reading after loss."
+      ]
+    },
+    {
+      "id": "FIX-09",
+      "title": "Evidence-ranked chemistry/cell detection and capacity confirmation",
+      "files_to_inspect_or_change": [
+        "core/analysis/ChemistryDetector.kt",
+        "core/config/BatteryProfiles.kt",
+        "core/config/AppConfig.kt",
+        "core/config: ConfigRepository",
+        "core/model/Models.kt",
+        "ui/setup/ConnectionSetupSheet.kt",
+        "ui/monitor/BatteryMonitorViewModel.kt"
+      ],
+      "current_source_evidence": [
+        "Chemistry is constructor-supplied from default profile; detector locks positive-cell count immediately or rounds pack/3.7. Live defaults inherit an unconfirmed 14S/30Ah Agras preset. Profile changes reset but do not replace the detector chemistry."
+      ],
+      "required_changes": [
+        "Implement candidate detection using stable baseline frames, complete indexed measured cells when available, low-load evidence and compatible pack voltage ranges. Use the existing five-frame/low-load constants only as configurable proposed engineering defaults with explicit quality, not universal proof.",
+        "Distinguish detected, confirmed, inferred, ambiguous and unavailable. Partial arrays and measured zero-voltage faults must not lock a smaller cell count. Aggregate voltage can produce candidates, not an unquestioned count.",
+        "Chemistry voltage ranges overlap across state of charge/load. If evidence cannot uniquely decide, return candidates/ambiguous and request concise user confirmation in setup. Never claim auto-detection passed from selected profile alone.",
+        "Cell count is not capacity. Require a confirmed live capacity or trustworthy mapped battery metadata before computing capacity-based percent rate/endurance/RTL. Simulator presets may retain their existing labelled scenario capacities.",
+        "Validate profile bounds/chemistry curves and units; do not silently assume latest DJI model or 30Ah for live G20 telemetry. Profile metadata provenance belongs in configuration/docs.",
+        "Rebuild/reset detector, analyzer, consumption, home/flight/alerts as appropriate on actual pack/vehicle/session change and profile confirmation. Do not retain constructor chemistry after selection changes."
+      ],
+      "acceptance": [
+        "Tests cover complete 6S/12S/14S, partial data, zero cell fault, stable/unstable/loaded baseline, overlapping chemistry ranges and changed profile.",
+        "Unknown capacity or ambiguous chemistry does not produce an assured RTL figure. Live defaults are not silently simulator Agras assumptions.",
+        "FR-1.3 traceability distinguishes actual detection coverage from remaining inherently ambiguous cases."
+      ]
+    },
+    {
+      "id": "FIX-10",
+      "title": "Measured-cell analysis and configurable sag compensation",
+      "files_to_inspect_or_change": [
+        "core/analysis/BatteryAnalyzer.kt",
+        "core/analysis/CellVoltageCurve.kt",
+        "core/model/Models.kt",
+        "core/config/AppConfig.kt",
+        "core/config: ConfigRepository",
+        "ui/monitor/BatteryMonitorScreen.kt"
+      ],
+      "current_source_evidence": [
+        "Analyzer filters all <=0 cells then fabricates List(count) { packVoltage/count }. Ri is hard-coded and unknown current is still applied as 0."
+      ],
+      "required_changes": [
+        "Remove fabricated measured cells. Analyze actual indexed valid measured cells only; represent unavailable average/min/max/delta when data is insufficient. Preserve real 0 V as an immediate voltage safety fault.",
+        "Aggregate-only pack voltage may support an explicitly inferred average estimate if cell count is confirmed, but never measured cell tiles, measured delta or proof of balance. Avoid putting extra explanatory text on every tile: concise unavailable state and diagnostics are enough.",
+        "Implement per-cell Ri setting in ohms with validated bounds and provenance. If a pack-level resistance input is offered, convert explicitly by confirmed series count; never multiply whole-pack resistance into every cell.",
+        "Compute Vrest_i=Vmeasured_i + I*Ri only when measured voltage/current/Ri are valid and fresh. Unknown current means resting-voltage compensation unavailable, not I=0.",
+        "Use measured loaded min-cell voltage for the company cell thresholds, not compensated resting values that hide dangerous sag. Estimated SOC curves may use resting voltage only with the correct confirmed chemistry and quality label.",
+        "Validate finite values and signed current conventions; charging/regenerative current is not discharge. Rapid sag uses real history and coherent current/load evidence, skips missing/stale/discontinuous samples and has configurable proposed threshold/window.",
+        "Keep raw computations uncapped unless physically required; cap only formatted display values when appropriate. Preserve source/quality through analysis."
+      ],
+      "acceptance": [
+        "Known 3.60V, 100A, Ri=0.002ohm yields 3.80V resting estimate while loaded-voltage alert still considers 3.60V.",
+        "Unknown current yields no compensated voltage; missing cells yield no invented imbalance result. Real zero cell triggers Emergency and is not dropped.",
+        "NaN/infinity/invalid samples cannot clear danger or render misleading valid figures."
+      ]
+    },
+    {
+      "id": "FIX-11",
+      "title": "Robust consumption, current fallback and operational endurance",
+      "files_to_inspect_or_change": [
+        "core/analysis/ConsumptionHistory.kt",
+        "core/analysis/BatteryAnalyzer.kt",
+        "core/model/Models.kt",
+        "core/telemetry/TelemetryRepository.kt"
+      ],
+      "current_source_evidence": [
+        "ConsumptionHistory computes only cumulative counter slope over >=10s. No current integration exists, and ViewModel can re-analyze unchanged frames on GPS/UI samples."
+      ],
+      "required_changes": [
+        "Use fresh valid cumulative consumed-mAh counter slope as primary; handle counter reset, rollover, time regressions, duplicate timestamps, reconnect, pack swap and charging. Maintain a rolling window with injectable clock.",
+        "When counter is absent/unusable, integrate known discharge current: delta_mAh = I_A * delta_t_seconds / 3.6, preferably trapezoidal integration across bounded valid intervals. Do not integrate across stale gaps or synthesize current when unknown.",
+        "Provide provisional instantaneous present-load rate I_A*1000/60 mAh/min until sufficient robust history exists; distinguish provisional from mature internally. Merge counter/current strategies without double-counting consumed capacity.",
+        "Compute remaining minutes = confirmed_remaining_mAh / valid_discharge_rate_mAh_per_min. Prefer reported usable remaining capacity/percent with confirmed capacity and documented assumptions. No zero-rate division or unconfirmed capacity math.",
+        "Use same time domain at x1/x5/x20 replay/simulator so rate does not change merely because wall scheduling changed. Exclude unrealistic jumps and retain logs of rejected/reset segments.",
+        "Deduplicate by observation ID/time/field version. A repository emit caused by Position must not append the same consumed-mAh reading again.",
+        "Retain unrounded/unclamped core values; formatting may show compact time. Unknown/idle/no valid current yields -- rather than a false 99-minute guarantee."
+      ],
+      "acceptance": [
+        "110A yields 1833.333mAh/min in pure current and integrated paths. Cumulative-counter slope matches at all simulation speeds.",
+        "Missing counter with valid current produces rate/endurance once capacity is confirmed. Missing both remains unavailable.",
+        "Tests cover duplicate frames, reset, source/pack swap, stale gap, decreasing counter, zero/negative current and insufficient history."
+      ]
+    },
+    {
+      "id": "FIX-12",
+      "title": "Verified home, editable RTL inputs and correct dynamic threshold",
+      "files_to_inspect_or_change": [
+        "core/analysis/RtlCalculator.kt",
+        "core/analysis/GeoMath.kt",
+        "core/telemetry/TelemetryRepository.kt",
+        "core/model/Models.kt",
+        "core/config: ConfigRepository",
+        "ui/monitor/BatteryMonitorViewModel.kt",
+        "ui/monitor/BatteryMonitorScreen.kt"
+      ],
+      "current_source_evidence": [
+        "Repository sets first Position as home. RTL uses fixed 5m/s and default capacity without freshness enforcement."
+      ],
+      "required_changes": [
+        "Retain explicit HomeFrame source/validity. Prefer selected autopilot HOME_POSITION or verified RTL target from supported protocol. No live first-GPS-as-home fallback. Allow only explicit user-confirmed fallback coordinates and document source. Simulator emits explicit simulator Home.",
+        "Use valid fresh selected-source position and verified home to compute geodesic distance. Retain home validity across sensible session state; clear on actual vehicle/session changes so another drone cannot inherit it.",
+        "Expose confirmed cruising speed in setup/advanced settings with units and validation. Ground speed may support an observed estimate if valid, but hovering 0m/s is not cruising speed and must not silently substitute.",
+        "Convert rate: percent/sec = rate_mAh_per_min / 60 / capacity_mAh * 100. Required percent = distance_m / cruise_mps * percent/sec +15. Use unrounded return seconds for math, round only display.",
+        "Validate finite nonnegative distance/rate, positive speed/capacity, known current battery percent and freshness. Return an explicit unavailable/reason state if any dependency fails; do not create a number from guesses.",
+        "Keep required percent >100 in core and show RETURN NOT ASSURED or a compact equivalent rather than clamping it into safety. Trigger conservative critical state if the valid requirement exceeds available battery.",
+        "Critical comparison is inclusive <=. If below-required reason is latched then input loss does not silently clear it. No actual RTL command is sent; this feature recommends return."
+      ],
+      "acceptance": [
+        "Golden fixture distance 900m, speed 5m/s, capacity 30000mAh, rate 1833.333mAh/min yields requirement 33.333% and return ETA 180s. 30% battery triggers Critical for dynamic RTL.",
+        "Missing/invalid/stale home, position, rate, speed or capacity yields unavailable estimate and cannot imply safe return.",
+        "First remote live GPS fix without HOME_POSITION does not become home. Capacity/profile changes update RTL consistently."
+      ]
+    },
+    {
+      "id": "FIX-13",
+      "title": "Immediate independent cell faults and stable dangerous-alert recovery",
+      "files_to_inspect_or_change": [
+        "core/alert/AlertEngine.kt",
+        "core/model/Models.kt",
+        "ui/monitor/AlertPresentation.kt",
+        "ui/monitor/BatteryMonitorScreen.kt",
+        "core/config/AppConfig.kt"
+      ],
+      "current_source_evidence": [
+        "Cell-fault-only is represented as NOTICE then routed to yellow. Debounce/recovery early returns suppress new fault publication. LinkLost immediately replaces severe state with Warning. Critical can drop to Warning without stable clear period."
+      ],
+      "required_changes": [
+        "Model highest battery tier, independent cell fault and independent telemetry loss separately, including reason details. Do not encode cell fault as a Notice shortcut.",
+        "Evaluate strict measured delta >0.08V immediately, even during a pending Notice/Warning debounce or severe recovery. Publish changed fault state and outputs even when battery level stays the same.",
+        "Route orange fault treatment for fault-only and alongside every battery severity; no unreachable OrangeOverlay branch. Use in-place treatment, not a dashboard-covering full-screen overlay.",
+        "Escalate Critical/Emergency immediately. Debounce lower tiers only where appropriate and configurable; never debounce a valid zero-cell or urgent fault.",
+        "Apply reason-specific hysteresis and stable fresh recovery to every downgrade, including Emergency->Critical and Critical->Warning, not only transitions to NONE. Existing proposed defaults +3 percentage points, +0.03V and 5s severe recovery need actual usage and tests.",
+        "For cell fault use distinct clear threshold/time, existing proposed delta <=0.06V stable for 1.5s. Unknown/incomplete/stale cells cannot prove fault cleared.",
+        "Use monotonic session clock, reset pending/clear timers correctly when reasons or levels change. Clear state only after all retained severe reasons have eligible safe evidence.",
+        "Link loss adds a separate condition and preserves severe state; presentation must not replace LAND NOW with only TELEMETRY LOST. Notification/audio policy can announce loss without losing danger context.",
+        "Notify output on level, reason/fault and freshness transitions as needed, not only old.level != new.level. Avoid duplicate frame-based output storms.",
+        "No dismiss action for active Critical/Emergency or fault; clean stop/reset applies only through explicit session operation, with analysis/source state reset."
+      ],
+      "acceptance": [
+        "Strict delta boundary: 0.08 no fault, >0.08 immediate fault. Fault-only is orange and spoken, not yellow Notice.",
+        "Fault arriving while Warning pending is not delayed; fault arriving during Critical recovery appears at once.",
+        "Severe->lower tier needs configured fresh stable recovery/hysteresis; stale data and link loss cannot clear it.",
+        "Threshold boundary and priority tests cover all five matrix rows and concurrent reasons."
+      ]
+    },
+    {
+      "id": "FIX-14",
+      "title": "Real Android chime, siren, voice and vibration outputs",
+      "files_to_inspect_or_change": [
+        "core/alert/AlertEngine.kt: AlertOutput",
+        "ui/monitor/BatteryMonitorViewModel.kt",
+        "platform: new AndroidAlertOutput/AudioCoordinator",
+        "app/src/main/AndroidManifest.xml",
+        "app/src/main/res/raw or generated tone implementation"
+      ],
+      "current_source_evidence": [
+        "ViewModel creates AlertEngine() with default NoOpAlertOutput. No Android sound/TTS/vibration implementation exists."
+      ],
+      "required_changes": [
+        "Implement production AndroidAlertOutput and inject it into a session-owned AlertEngine/coordinator. Keep NoOp only for explicit tests/unavailable capability, not the app default.",
+        "Implement Notice single chime + short vibration on entry. Warning repeats voice. Critical starts sustained high-pitch siren and strongest supported vibration pattern. Emergency repeats Land immediately continuously with controlled non-overlapping gaps. Cell fault speaks exact action, including when battery tier does not change.",
+        "Use real audio resources or a documented generated tone, Android AudioAttributes/focus and version-appropriate Vibrator/VibratorManager/VibrationEffect. Check hasVibrator/amplitude support and use compatible strongest-supported fallback; do not claim exact amplitude on unsupported hardware.",
+        "Build a priority scheduler Emergency > Critical > Warning > Cell fault/Notice > periodic battery telemetry, preserving fault reminders when feasible. Duck/pause siren for urgent speech so alerts remain intelligible; avoid separate engines fighting audio focus.",
+        "Request/check TTS initialization and language availability, handle failed engine/focus/playback/haptic permissions as capability errors. Do not count an interface method call as actual audible output. Do not bypass silent/DND system restrictions with unsupported claims.",
+        "Cancel scheduled repeats on valid recovery or session Stop, release TTS/player/vibration/focus once, avoid leaks/duplicate outputs across rotation and service rebinding.",
+        "Use compact settings for supported audio/haptic controls and status diagnostics, not verbose dashboard boilerplate. Never silently mark all output channels healthy when unavailable.",
+        "Output scheduling must be testable with fake player/speech/vibration ports and injectable clock, but complete the Android implementation and device evidence separately."
+      ],
+      "acceptance": [
+        "Production composition root supplies real output, not NoOpAlertOutput. Siren/chime assets/code, vibration and TTS methods are reachable.",
+        "Tests assert one Notice entry event, scheduled Warning repeats, sustained Critical outputs, Emergency priority, cell fault while same battery level and complete cancellation on Stop.",
+        "Device/emulator evidence states which outputs were actually heard/felt; mocked calls alone are not hardware output proof."
+      ]
+    },
+    {
+      "id": "FIX-15",
+      "title": "Periodic battery TTS is an actual loop",
+      "files_to_inspect_or_change": [
+        "core/alert/AlertEngine.kt",
+        "platform: TTS/audio coordinator",
+        "service: session loop",
+        "core/config/AppConfig.kt"
+      ],
+      "current_source_evidence": [
+        "onPeriodicStatus exists but is never invoked; ttsIntervalSeconds=60 is unused implementation-wise."
+      ],
+      "required_changes": [
+        "Start a real cancellable periodic status task with the monitoring session, default 60 seconds, using the shared speech engine and priority scheduler. No duplicated task after rotation/reconnect.",
+        "Speak latest fresh known percent and measured average, formatting clearly: Battery 48%, Cell average 3.82 volts. Omit unavailable fields rather than substituting zero; skip if no useful fresh battery data.",
+        "Do not read stale percentages aloud as current, do not interrupt Emergency or mandatory alert speech, and do not build an unbounded queue if TTS is slow. Pending periodic utterance expires/replaces itself.",
+        "Make interval validated/persisted if configurable. Stop and release with the monitoring service/session."
+      ],
+      "acceptance": [
+        "Virtual-clock tests reach one status announcement at 60s, none while stale/no battery, and no overlap with urgent alert speech.",
+        "Stopping session or switching source cancels the loop. Real TTS implementation is exercised independently of scheduler tests."
+      ]
+    },
+    {
+      "id": "FIX-16",
+      "title": "Optional 20% pump OFF interlock with command and feedback gates",
+      "files_to_inspect_or_change": [
+        "core/config/AppConfig.kt",
+        "core/config: interlock configuration",
+        "core: new PumpInterlockController/CommandPort",
+        "core/model/Models.kt",
+        "core/transport: controlled outgoing command adapter",
+        "core/telemetry/TelemetryRepository.kt",
+        "ui/setup/ConnectionSetupSheet.kt"
+      ],
+      "current_source_evidence": [
+        "Only threshold/default constants and COMMAND_ACK decoding exist; no option, outgoing writer, mapping, state or confirmation. ByteStreamSource is currently read-only."
+      ],
+      "required_changes": [
+        "Implement an explicit opt-in control with clear state: disabled, not configured, ready, cutoff requested, acknowledged, confirmed off, failed/unknown. Default real control OFF.",
+        "At fresh valid selected-pack/system controlling percent <=20, and real option enabled with confirmed mapping/authority, send only mapped pump OFF once per event/session policy. Do not repeatedly spam every frame and do not automatically turn pump back ON after recovery.",
+        "Define verified mapping (command type/ID, actuator/channel/relay/servo target, off value, system/component, parameter meanings and required feedback) as configuration. No guessed MAV_CMD_DO_SET_SERVO, channel, PWM or generic arm/kill action.",
+        "Implement a real writable transport command port only where supported and configured; reuse MAVLink library serialization with proper sequence/CRC/signing/targeting as applicable. Separate read-only telemetry from controlled command effects. UDP peer destination must be confirmed; bind/listen address is not automatically a command recipient.",
+        "Match ACK by source/target/command and active request, handle accepted/denied/unsupported/in-progress/timeout. ACK alone may mean command accepted, not physical pump off. Where feedback is unavailable retain acknowledged/unconfirmed rather than confirmed off.",
+        "Use bounded timeout/retry policy, idempotence and no unsafe retries to unrelated targets. Record every attempt/result in blackbox. Never send cutoff from stale unknown percent, unselected vehicle or ambiguous pack topology.",
+        "Simulator uses a clearly simulated pump controller with visible state and modelled reduced load after cutoff. Replay records/visualizes simulated policy only and must never instantiate a hardware writer.",
+        "If Exodia mapping is missing, finish controller, fake/bench command tests and gated wiring, leave real option disabled with a concise configuration reason. Document exact unanswered vendor facts and do not claim full physical FR-5.1 completion.",
+      ],
+      "acceptance": [
+        "Tests: 20% inclusive triggers once when opted in and configured; >20, disabled, stale, wrong source, unknown mapping and replay send no command.",
+        "ACK/feedback, timeout/deny and delayed mismatched ACK cases are distinguished. No automatic ON.",
+        "Physical cutoff cannot be labelled confirmed until approved controlled bench feedback verifies the actual pump. No physical command is performed by this implementation task without separate authorization."
+      ]
+    },
+    {
+      "id": "FIX-17",
+      "title": "Continuous GPS-mapped blackbox logging and export",
+      "files_to_inspect_or_change": [
+        "core: new TelemetryLogger/LogSchema",
+        "platform: app-private storage/export",
+        "service: session lifecycle",
+        "core/telemetry/TelemetryRepository.kt",
+        "core/alert/AlertEngine.kt",
+        "ui/setup/ConnectionSetupSheet.kt"
+      ],
+      "current_source_evidence": [
+        "No file writer/continuous telemetry record exists. The last 20 in-memory level transitions are not blackbox logging."
+      ],
+      "required_changes": [
+        "Implement streaming versioned JSONL and optional CSV with session manifest in app-private storage. Start recording with configured monitoring session and flush/finalize on explicit Stop/errors/process lifecycle where possible.",
+        "Record UTC wall time and monotonic/source sample time, session/source kind, vehicle/component/battery identity, raw measured cell slots/pack voltage, current, consumed mAh, percent, temperature, position/altitude, home source, data age/quality, chemistry/capacity confirmation, derived rate/resting values/RTL, alert reasons and pump events.",
+        "Map each battery observation to latest valid position with position timestamp/age. If absent/stale record null and stale quality, not fake coordinates 0,0 or a silently reused old GPS fix.",
+        "Use bounded IO queue/buffer, dedicated dispatcher, controlled flush interval and explicit backpressure/drop counters. Never block telemetry/audio on disk IO or let an unbounded queue exhaust memory.",
+        "Handle low storage, IO failure, permission/URI errors, partial records and session recovery. Surface concise recording failure in diagnostics/monitoring status; never keep saying recording is active after failure.",
+        "No broad legacy external-storage permission. Export via SAF/share URI/FileProvider with user action, correct MIME and grants. No automatic upload/disclosure.",
+        "Log simulator/replay provenance distinctly and carry schema version; round-trip a sample recording through replay without losing timestamps, cell indices, nulls, GPS or identity.",
+        "Provide sample log and manifest from an actual software test session, clearly marked simulator/test, plus parser/schema tests and bounded-memory test."
+      ],
+      "acceptance": [
+        "A session generates durable parseable telemetry records continuously, including temp/current/GPS quality, not only alert events.",
+        "File tests verify fresh vs stale GPS association, nullable sentinels, flushing, IO errors, buffer overflow reporting and export.",
+        "Sample log round-trip reproduces core analysis/alerts under replay time."
+      ]
+    },
+    {
+      "id": "FIX-18",
+      "title": "Foreground monitoring service and single-session lifecycle",
+      "files_to_inspect_or_change": [
+        "BatteryAlertApp.kt",
+        "MainActivity.kt",
+        "ui/monitor/BatteryMonitorViewModel.kt",
+        "app/src/main/AndroidManifest.xml",
+        "platform/service: new TelemetryService"
+      ],
+      "current_source_evidence": [
+        "Transport lives in AppContainer while repository/output/analysis are tied to ViewModel collection. Manifest declares permissions but no service implementation/declaration exists."
+      ],
+      "required_changes": [
+        "Create one session-owned foreground monitoring service holding transport, repository/watchdog, analysis, alerts/output, logger, TTS task and gated pump controller. UI observes immutable state; rotation/rebinding cannot reset flight or create another receiver.",
+        "Start service from explicit user monitoring action, create notification channel and an ongoing notification with honest source/status and Stop action. Follow Android 13 notification/foreground-service requirements and installed/target SDK constraints; verify type/permissions if upgrading target.",
+        "Keep no service running on cold setup unless actual active monitoring is restored under an explicitly designed policy. Do not use a foreground-service declaration as proof monitoring stays alive.",
+        "Stop cancels and joins tasks, closes sockets/ports/doc streams, cancels vibration/audio, releases speech/focus, unregisters receivers and flushes logs. Source change is atomic stop-then-start.",
+        "Handle backgrounding, orientation, activity recreation, service death, USB detach and reopen without silent auto simulator/hardware command. Avoid automatic command replay on restart.",
+        "Respect Android battery/system constraints and report actual runtime limits rather than promise impossible persistence. Screen stay-awake is for visible monitoring only and follows existing landscape target."
+      ],
+      "acceptance": [
+        "One active receiver/repository/output/log session after repeated rotation, rebinding and source change.",
+        "Background test confirms actual monitoring/output behavior supported by the platform; service Stop releases every resource.",
+        "Notification/source/Stop behavior is professional, no emojis, no obsolete test-status text."
+      ]
+    },
+    {
+      "id": "FIX-19",
+      "title": "Use actual vehicle arm state for flight timer",
+      "files_to_inspect_or_change": [
+        "core/analysis/FlightClock.kt",
+        "core/telemetry/TelemetryRepository.kt",
+        "ui/monitor/BatteryMonitorViewModel.kt",
+        "core/model/Models.kt"
+      ],
+      "current_source_evidence": [
+        "VehicleStateFrame is decoded then discarded; flight timer starts at current>=5A regardless of arming."
+      ],
+      "required_changes": [
+        "Retain selected autopilot heartbeat arm state and timestamp. Start/freeze/reset flight elapsed according to documented arm/disarm/session semantics, with monotonic clock and no wall-time double count.",
+        "Do not imply arm equals airborne unless protocol evidence actually supports that; name timer appropriately for the app semantics. Do not send arm/disarm commands.",
+        "A current-threshold fallback can exist only for explicit simulator/test behavior or clearly marked unavailable live arm state, not a hidden real flight-state claim.",
+        "Do not reset accumulated elapsed time on UI rotation. On stale heartbeat mark state uncertain; do not fabricate disarm/flight end. New vehicle/session resets appropriate timer state."
+      ],
+      "acceptance": [
+        "Tests cover arm, disarm freeze, repeated heartbeat, source changes, stale state and rotation retention. Current alone cannot start a purported real armed-flight timer."
+      ]
+    },
+    {
+      "id": "FIX-20",
+      "title": "Deterministic simulator scenarios and isolated dynamic RTL test",
+      "files_to_inspect_or_change": [
+        "core/transport/SimulatorTransport.kt",
+        "ui/debug/SimulatorControlSheet.kt",
+        "ui/monitor/BatteryMonitorViewModel.kt",
+        "core/telemetry/TelemetryRepository.kt",
+        "app/src/test"
+      ],
+      "current_source_evidence": [
+        "CRITICAL_RTL uses normal loaded-voltage curve near 3.46V and noise, so low-cell Critical masks RTL. Timestamp is clock.nowMs()+simulatedMs and longitude conversion omits latitude. Scenario switches fail to clear full pipeline state."
+      ],
+      "required_changes": [
+        "Use one virtual simulation timeline for frame timestamps, consumption and analyzer history. Do not add a moving wall clock to elapsed simulation time. Maintain independent real receive time only for UI/live watchdog semantics.",
+        "Make each scenario deterministic or inject a seeded RNG; exact threshold tests use zero noise. Scenario changes/reset/profile changes reset home/detector/history/sag/flight/alerts/pending timers/pump/logical session state coherently.",
+        "CRITICAL_RTL golden scenario: confirmed 14S/30000mAh demo profile, 900m distance, 5m/s cruise, 110A rate=1833.333mAh/min, 30% remaining and equal measured 3.80V cells. Dynamic required=33.333%. Only BELOW_DYNAMIC_RTL should cause Critical, no LOW_CELL or RAPID_SAG or CELL_IMBALANCE contamination.",
+        "Emit explicit simulator HomeFrame and vehicle state before remote position/battery. Use correct geodesic destination or inject exact distance fixture with consistent coordinates rather than equatorial longitude shortcut.",
+        "Separate Notice 30%, Warning 20%, Critical low cell 3.50V, Emergency 3.40V, rapid sag and cell fault cases so unrelated triggers do not mask their intended tests. Implement distinct FAST_DISCHARGE behavior.",
+        "At x1/x5/x20 rate/RTL values at the same virtual moment remain equivalent. Pause has explicit demo semantics and cannot accidentally resemble live loss; an explicit LinkLost scenario still exercises central freshness/danger preservation.",
+        "Simulator pump cutoff is simulated and reduces the configured demo load after <=20% when enabled, never touches hardware. Preserve explicit SIMULATOR label and no unwanted captions."
+      ],
+      "acceptance": [
+        "End-to-end simulator->repository->analyzer->RTL->AlertEngine test proves exact golden requirement and exclusive dynamic-RTL reason. A calculator-only test is insufficient.",
+        "Each named scenario produces the intended isolated state and sound schedule. Switching from Emergency to Normal starts clean, with no prior timers/history.",
+        "Virtual timestamps and rate are consistent across speeds; geodesic 900m fixture falls within an explicit tolerance."
+      ]
+    },
+    {
+      "id": "FIX-21",
+      "title": "Faithful accessible replay with no live/hardware effects",
+      "files_to_inspect_or_change": [
+        "core/transport/ReplayTransport.kt",
+        "core/config/TransportConfig.kt",
+        "ui/setup/ConnectionSetupSheet.kt",
+        "ui/monitor/BatteryUiState.kt",
+        "ui/monitor/BatteryMonitorScreen.kt",
+        "core/telemetry/TelemetryRepository.kt"
+      ],
+      "current_source_evidence": [
+        "Replay is inaccessible through blank path, UI labels it LIVE, JSONL uses fragile substring/regex parsing and fixed delays, .tlog clips gaps to 10..2000ms and feeds wall clock, partial reads are not fully handled. EOF remains unclear."
+      ],
+      "required_changes": [
+        "Use SAF input URI and a platform input-stream provider. Validate readable files and detect supported JSONL/.tlog schema/container explicitly. Do not guess every malformed file is valid replay.",
+        "Parse versioned JSONL with a real structured serializer/parser matching logger schema, supporting whitespace, nulls, exponent/negative numbers, cell holes, timestamps, consumed mAh, source IDs, home and vehicle state. Invalid records get a clear policy/diagnostic, not silent loss.",
+        "For .tlog verify timestamp framing from supported actual format. Read full byte counts robustly, account for MAVLink 1/2 packet headers/checksum/signature length correctly, validate magic/CRC and handle truncation/resynchronization without consuming arbitrary timestamps as bytes.",
+        "Use recorded timestamp differences and a virtual replay clock for analysis. Playback speed changes scheduling only, not original consumption-rate math. Preserve long gaps faithfully; do not cap a recorded 30s outage to 2s. Fast-skip may be an explicit separate user mode, not silently faithful replay.",
+        "Show source REPLAY, never LIVE. Add clean ReplayComplete/EOF state, pause/resume/loop/reset with session-scoped clearing. Replaying old telemetry must not become a current live drone state.",
+        "Replay cannot obtain a hardware CommandPort. All pump decisions are simulated/recorded only. Output demo alerts may be exercised with explicit session choice; label them REPLAY."
+      ],
+      "acceptance": [
+        "Logger sample round-trips through replay preserving identities, nulls, timestamps/GPS/counter. JSON formatting variations parse correctly.",
+        "Tests cover exact delays/speed-independent analysis, long gap, partial .tlog reads, signed frames, truncated file, malformed JSON, EOF and loop reset.",
+        "No hardware writes in replay even when interlock option was enabled in a preceding real session."
+      ]
+    },
+    {
+      "id": "FIX-22",
+      "title": "Selected vehicle and multiple-pack isolation",
+      "files_to_inspect_or_change": [
+        "core/model/Models.kt",
+        "core/telemetry/TelemetryRepository.kt",
+        "core/analysis/BatteryAnalyzer.kt",
+        "core/analysis/RtlCalculator.kt",
+        "core/alert/AlertEngine.kt",
+        "core/config/TransportConfig.kt"
+      ],
+      "current_source_evidence": [
+        "BatteryFrame carries identity but repository keeps one latest battery and a single profile/history/detector, so packs can overwrite each other."
+      ],
+      "required_changes": [
+        "Key telemetry/history/quality/detection by system, component association and battery ID. Apply selected vehicle policy before state updates and alerts. Never merge two aircraft into one dashboard.",
+        "Define supported pack topology explicitly. For single-pack target choose the pack; for multiple packs maintain per-pack state and controlling worst safety condition. Do not add capacities or percentages unless confirmed electrical topology justifies it.",
+        "Do not let fresh healthy pack B clear stale/dangerous pack A. SYS_STATUS fallback remains system-level when it cannot map unambiguously.",
+        "Keep UI concise: show relevant selected pack/combined safety context without redesigning all dashboard panels. If multi-pack live behavior is unsupported, detect and reject/flag ambiguity instead of silently pretending one pack is all.",
+        "Reset on source/vehicle/pack swap and log association/provenance. Interlock decisions require confirmed controlling pack/system semantics."
+      ],
+      "acceptance": [
+        "Fixtures from two systems/two batteries cannot contaminate selected state or consumption. Stale one-pack scenario remains unsafe/unavailable, not healthy.",
+        "Topology/capacity handling is documented and tested; unsupported topology is explicit."
+      ]
+    },
+    {
+      "id": "FIX-23",
+      "title": "Transport ownership, state errors and cancellation correctness",
+      "files_to_inspect_or_change": [
+        "core/transport/TelemetryTransport.kt",
+        "core/transport/UdpTransport.kt",
+        "core/transport/UsbSerialTransport.kt",
+        "core/transport/InternalSerialTransport.kt",
+        "core/transport/ReplayTransport.kt",
+        "BatteryAlertApp.kt",
+        "core/telemetry/TelemetryRepository.kt"
+      ],
+      "current_source_evidence": [
+        "Each transport launches its own ad-hoc scope; repository/app both start transports. Some startup errors are states rather than returned failures; asynchronous old-session stop may race new attachment."
+      ],
+      "required_changes": [
+        "Use a coherent owned coroutine scope/session contract. Make start/stop idempotent, surface open errors, and cancel-and-join jobs before replacing shared resources. Ensure collectors are attached before initial frames.",
+        "UDP bind address/port validation and optional remote/source filters must reach actual DatagramSocket; unsupported/occupied port produces concise error. INTERNET permission is already present and must remain.",
+        "Never mark connected solely on socket open, replay file open, port enumeration or first GPS. Require valid selected battery data as defined by freshness policy.",
+        "Ensure watchdog runs even after EOF, blocking read and silence. Use finite read timeout or interruptible close; no leaked reader jobs on stop.",
+        "Bound shared-flow/backpressure behavior without silently dropping safety-critical transitions. Separate state/telemetry queue policies and record overflow diagnostics.",
+        "Errors must be trustworthy operational descriptions, not Hardware bench NOT_TESTED suffixes; preserve detailed exception/stack context only in diagnostic logs."
+      ],
+      "acceptance": [
+        "Tests cover rapid start/stop/source-switch, port already in use, blocked read cancellation, open failure, EOF and duplicate start.",
+        "Exactly one active receiver owns selected resource and no old-session callback mutates the new source state."
+      ]
+    },
+    {
+      "id": "FIX-24",
+      "title": "Verification, screenshots and honest resumable handoff",
+      "files_to_inspect_or_change": [
+        "app/src/test",
+        "app/src/androidTest: add instrumentation/Compose tests",
+        "docs/CURRENT_FIX_SPEC.json",
+        "docs/FRD_TRACEABILITY.md",
+        "docs/PROGRESS.md",
+        "README.md",
+        "build configuration"
+      ],
+      "current_source_evidence": [
+        "Existing 29 tests in five files cover useful core/codec/transport pieces, not the missing Android wiring/audio/logger/pump or pixel layout. Prior review could not compile due to JDK11 vs required JDK17."
+      ],
+      "required_changes": [
+        "Use compatible JDK17, actual Android SDK and resolved existing dependencies. Run lint/tests/assemble; fix actual compilation/test regressions. Do not disable meaningful tests to get a green build and do not arbitrarily upgrade all libraries.",
+        "Add tests called for by every group. Keep core tests Android-free; add platform/session wiring and Compose UI tests with appropriate existing/test dependencies.",
+        "Visually render and inspect the actual app/screenshots at landscape 1920x1080 target and a smaller supported landscape size, with normal and larger font scales. Source reading/Compose Preview definitions alone are not visual verification.",
+        "Capture startup setup for UDP/USB/Internal/Replay, centered Simulator, Normal, Notice, Warning, Critical, Emergency, fault-only, combined fault+Critical, missing/aggregate-only cells and stale/lost danger.",
+        "Check 100/99/50/9/0 percentage centering, percent symbol baseline, responsive hero size instead of fixed 420dp overflow, consistent ring direction/RTL zones, contrast outdoors, 48dp touch targets, text clipping and retained top metrics. No decorative cell animation.",
+        "Update traceability with each FR ID/matrix row, source files, test names and evidence tier: implemented in software, tested in software, rendered/device-tested, hardware-confirmed or blocked. Explicitly note user visual deviation, ambiguous chemistry and unconfirmed physical pump/serial mapping.",
+        "Produce docs/HARDWARE_SETUP.md, docs/KNOWN_LIMITATIONS.md, docs/DEMO_SCRIPT.md and docs/TEST_REPORT.md using current facts. Include build commands/results, sample log/replay fixtures and screenshot paths. Never say hardware passed from mock tests.",
+        "Commit focused finished steps if repository workflow permits. Do not force-push, erase user changes or use large rewrite commits. Each handoff records current HEAD, completed groups, pending blockers, exact next command and this prompt as current authority.",
+        "If local runtime cannot run build/pixels, report the specific prerequisite and what was verified, preserving pending verification; do not put not tested captions back into UI."
+      ],
+      "acceptance": [
+        "Build/test evidence includes exact commands, actual outcomes, environment and output artifacts, with failures/blockers separated from successful work.",
+        "Actual screenshots verify all UI overrides and dangerous-state visibility, no emoji/no test-status caption, button centering and no full-screen flash.",
+        "No stale Day 2 instruction can be mistaken for the active implementation plan; current resume points to CURRENT_FIX_SPEC."
+      ]
+    }
+  ],
+  "implementation_sequence": [
+    {
+      "step": 1,
+      "groups": [
+        "FIX-01",
+        "FIX-02"
+      ],
+      "outcome": "Apply latest visible UI changes first without weakening alert logic. Remove full-screen flashing/modal path, restore red in-place dashboard and clean/center Simulator."
+    },
+    {
+      "step": 2,
+      "groups": [
+        "FIX-03",
+        "FIX-23"
+      ],
+      "outcome": "Unify editable setup and source identity; eliminate simulator-labelled-LIVE bug and session start/stop races."
+    },
+    {
+      "step": 3,
+      "groups": [
+        "FIX-04",
+        "FIX-05"
+      ],
+      "outcome": "Wire real USB permission/adapter and actual internal serial bridge; preserve existing UDP as a real receive path, no simulator fallback."
+    },
+    {
+      "step": 4,
+      "groups": [
+        "FIX-06",
+        "FIX-07",
+        "FIX-08",
+        "FIX-22"
+      ],
+      "outcome": "Fix field/identity/merge contracts and per-field freshness before trusting analyses or commands."
+    },
+    {
+      "step": 5,
+      "groups": [
+        "FIX-09",
+        "FIX-10",
+        "FIX-11",
+        "FIX-12",
+        "FIX-19"
+      ],
+      "outcome": "Implement confirmed detection/configuration, truthful analysis, current fallback, verified home/RTL and actual vehicle-state timer."
+    },
+    {
+      "step": 6,
+      "groups": [
+        "FIX-13",
+        "FIX-14",
+        "FIX-15",
+        "FIX-18"
+      ],
+      "outcome": "Independent faults and safe recovery, real outputs/TTS and reliable single-session background ownership."
+    },
+    {
+      "step": 7,
+      "groups": [
+        "FIX-16",
+        "FIX-17"
+      ],
+      "outcome": "Gated pump OFF implementation and continuous recording; vendor uncertainty stays explicit and no unauthorized physical command is executed."
+    },
+    {
+      "step": 8,
+      "groups": [
+        "FIX-20",
+        "FIX-21"
+      ],
+      "outcome": "Make isolated simulator scenarios and faithful replay cover the actual runtime pipeline, not only formula fixtures."
+    },
+    {
+      "step": 9,
+      "groups": [
+        "FIX-24"
+      ],
+      "outcome": "Run full verification, inspect actual pixels, update current traceability and produce truthful resumable closeout."
+    }
+  ],
+  "test_plan": {
+    "baseline": "Retain and rerun existing CoreLogicTest, MavlinkCodecTest, ReplayTransportTest, UdpTransportTest and UsbSerialTransportTest. Expand obsolete expected behavior rather than preserving bugs in tests.",
+    "required_suites": [
+      {
+        "name": "SetupAndSessionSourceTest",
+        "cases": [
+          "Cold start has no transport/data",
+          "Inline and sheet share config",
+          "Real API rejects SIMULATOR",
+          "Invalid port/path does not start",
+          "Edited config reaches selected adapter",
+          "SIMULATOR/REPLAY never LIVE",
+          "Rotation and rapid source switches retain correct source"
+        ]
+      },
+      {
+        "name": "SerialPlatformWiringTest",
+        "cases": [
+          "Real stream constructed/injected",
+          "USB permission grant/deny",
+          "Multiple device/port selection",
+          "Detach/reconnect",
+          "Offset/count/close contracts",
+          "Internal open/configure/read bridge",
+          "Access failure",
+          "Cancellation joins jobs"
+        ]
+      },
+      {
+        "name": "CodecAndMergeTest",
+        "cases": [
+          "MAVLink1/2 encoded packets and fragments",
+          "CRC failure/resync",
+          "Units and sentinels",
+          "Zero base cell and extension near-zero",
+          "Missing C positions do not compress",
+          "Aggregate pack forms",
+          "Component/system policy",
+          "Interleaved SYS_STATUS fallback preserves primary ages",
+          "Pack association isolation"
+        ]
+      },
+      {
+        "name": "FreshnessAndRecoveryTest",
+        "cases": [
+          "No traffic watchdog",
+          "GPS-only/heartbeat-only battery expiry",
+          "Independent GPS expiry",
+          "Clock jump immunity",
+          "Reconnect needs battery",
+          "Severe and cell fault survive link loss",
+          "Fresh stable hysteretic downgrade",
+          "Fault during pending/recovery branch"
+        ]
+      },
+      {
+        "name": "AnalysisDetectionConsumptionRtlTest",
+        "cases": [
+          "Stable 6S/12S/14S",
+          "Ambiguous chemistry",
+          "No invented cells",
+          "Known sag equation",
+          "Unknown current",
+          "Current integration and counter fallback",
+          "Duplicate/reset/stale-gap handling",
+          "Verified home only",
+          "Golden 33.333% RTL",
+          "Requirement >100",
+          "Invalid speed/capacity"
+        ]
+      },
+      {
+        "name": "OutputAndServiceTest",
+        "cases": [
+          "Actual production output injection",
+          "Notice once",
+          "Warning repeats",
+          "Critical siren/vibration",
+          "Emergency priority",
+          "Cell-fault change without tier change",
+          "Periodic 60s fresh speech",
+          "Stop clears all outputs",
+          "Single service session through rotation/background"
+        ]
+      },
+      {
+        "name": "InterlockAndLoggerTest",
+        "cases": [
+          "Opt-in cutoff <=20",
+          "Disabled/unconfigured/stale/replay never writes",
+          "Command/ACK/feedback separation",
+          "No auto ON",
+          "Bounded retries",
+          "Continuous durable records",
+          "GPS age/null association",
+          "IO failure and flush",
+          "Round-trip export/replay"
+        ]
+      },
+      {
+        "name": "SimulatorReplayIntegrationTest",
+        "cases": [
+          "Exclusive golden dynamic-RTL reason",
+          "Equal measured 3.80V cells",
+          "x1/x5/x20 same virtual rate",
+          "Explicit home",
+          "Reset all state",
+          "Scenario isolation",
+          "SAF file selection",
+          "Recorded timing/long gaps",
+          "EOF/loop",
+          "Malformed/partial records",
+          "No replay hardware writer"
+        ]
+      },
+      {
+        "name": "ComposeProfessionalUiTest",
+        "cases": [
+          "No full-screen dialog or red flashing cover",
+          "Percent/warning/top metrics visible in Critical/Emergency",
+          "Red semantic theme",
+          "Fault orange coexists",
+          "Simulator button centered without caption",
+          "No emoji/NOT_TESTED UI strings",
+          "Stale vs missing data",
+          "Font-scale/small-screen layout",
+          "No dismiss control"
+        ]
+      }
+    ],
+    "commands_to_run_after_checking_local_environment": [
+      "./gradlew --no-daemon testDebugUnitTest",
+      "./gradlew --no-daemon lintDebug assembleDebug",
+      "./gradlew --no-daemon connectedDebugAndroidTest (only with a configured compatible emulator/device)"
+    ],
+    "physical_evidence_separate": [
+      "USB device permission/actual receive bench",
+      "G20 internal node/vendor SDK access and baud verification",
+      "Audio output/haptic capability on controller",
+      "Pump mapped OFF and actual feedback under separately approved bench procedure"
+    ]
+  },
+  "completion_gate": [
+    "Latest red-theme in-place alert UI and clean centered Simulator verified from actual pixels.",
+    "Every real setup path is editable/reachable and its source identity is honest; no automatic synthetic fallback.",
+    "USB adapter and internal bridge are genuinely wired. If vendor interface details remain unavailable, exact physical limitation is documented rather than claimed solved.",
+    "Unknown/stale/aggregate data cannot falsely satisfy chemistry/cell balance/RTL/cutoff requirements.",
+    "All matrix audio/haptic behavior and 60-second TTS have actual Android implementations plus scheduler tests.",
+    "Cell fault is immediate/independent, severe alerts persist safely through loss and recover only from fresh eligible data.",
+    "Blackbox file writer and replay round-trip produce usable records; pump controller has explicit opt-in mapping/effect gates.",
+    "Actual build/test/screenshot outcomes are recorded. Pending physical checks and deliberate FRD visual deviation remain separate from completed software evidence.",
+    "Old Day 2 files are historical and resume instructions point to this prompt only."
+  ],
+  "coding_tool_response_contract": {
+    "work_style": "Make the changes now in focused stages. Avoid stopping at a plan. Do not spend time re-reading superseded Day 2 requirements or restoring their fullscreen defaults. Preserve unrelated user work.",
+    "progress_files": "Keep docs/PROGRESS.md current after every stage: actual files changed, tests run/results, known blockers, current source mode/behavior and next task. Reference CURRENT_FIX_SPEC.json as authority.",
+    "final_response_fields": [
+      "Current commit/branch and concise implementation summary",
+      "Each FIX ID with completed/partial/blocked and specific evidence",
+      "Exact build/test commands and actual results",
+      "APK/sample log/replay/screenshot artifact paths if produced",
+      "Specific vendor facts still missing, without invented ports/baud/pump mapping",
+      "Explicit statement that Critical/Emergency in-place presentation intentionally differs from literal FRD visuals",
+      "Short next-tool resume instruction pointing only to CURRENT_FIX_SPEC.json"
+    ],
+    "do_not": "Do not label the project fully FRD-compliant or physically proven just because UI, mock tests or documentation are complete. Do not put long limitations or test-status captions back into the UI."
+  }
+}

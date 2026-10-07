@@ -16,7 +16,7 @@ class CoreLogicTest {
     }
     @Test fun measuredCellDeltaIsStrictlyGreaterThanLimit() {
         val analyzer = BatteryAnalyzer(BatteryProfiles.default); val history = ConsumptionHistory(30)
-        fun delta(cells: List<Float>) = analyzer.analyze(BatteryFrame(0, cells, 52f, 0f), PackConfig(cells.size, BatteryChemistry.LI_ION, true), history, 0).cellDeltaV
+        fun delta(cells: List<Float>) = analyzer.analyze(BatteryFrame(0, cells, 52f, 0f), PackConfig(cells.size, BatteryChemistry.LI_ION, true), history, 0).cellDeltaV ?: 0f
         assertEquals(.11f, delta(listOf(3.82f, 3.71f) + List(9) { 3.78f }), .001f)
         assertTrue(delta(listOf(3.82f, 3.73f)) > .08f); assertFalse(delta(listOf(3.82f, 3.74f)) > .08f)
     }

@@ -1,6 +1,7 @@
 package com.exodia.batteryalert
 
 import android.app.Application
+import com.exodia.batteryalert.core.config.RealConnectionConfig
 import com.exodia.batteryalert.core.config.TransportConfig
 import com.exodia.batteryalert.core.config.TransportKind
 import com.exodia.batteryalert.core.transport.SimulatorTransport
@@ -12,6 +13,12 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class BatteryAlertApp : Application() {
     val container by lazy { AppContainer() }
+
+    override fun onCreate() {
+        super.onCreate()
+        com.exodia.batteryalert.core.transport.TransportFactory.streamSourceProvider =
+            com.exodia.batteryalert.platform.transport.AndroidStreamSourceProvider(this)
+    }
 }
 
 /**
@@ -38,13 +45,18 @@ class AppContainer {
     val activeSimulator: SimulatorTransport? get() = _activeTransport.value as? SimulatorTransport
 
     /**
-     * Start a real transport from validated config.
+     * Start a real transport from validated typed [RealConnectionConfig].
      * Stops any existing session first. Does NOT silently fall back to simulator.
-     * Returns Result.failure with an actionable message on config/transport error.
      */
-    suspend fun startTransport(config: TransportConfig): Result<TelemetryTransport> {
+    suspend fun startRealTransport(config: RealConnectionConfig): Result<TelemetryTransport> {
+        val validated = config.validate()
+        if (validated.isFailure) {
+            val err = validated.exceptionOrNull()?.message ?: "Invalid configuration"
+            _lastError.value = err
+            return Result.failure(validated.exceptionOrNull()!!)
+        }
         stopTransport()
-        val result = TransportFactory.create(config)
+        val result = TransportFactory.createReal(config)
         if (result.isFailure) {
             _lastError.value = result.exceptionOrNull()?.message
             return result
@@ -52,17 +64,25 @@ class AppContainer {
         val transport = result.getOrThrow()
         _activeTransport.value = transport
         _lastError.value = null
-        transport.start()
         return Result.success(transport)
     }
 
-    /** Start the Simulator transport explicitly (from Simulator button). */
+    /**
+     * Legacy adapter from TransportConfig. Rejects SIMULATOR defensively.
+     */
+    suspend fun startTransport(config: TransportConfig): Result<TelemetryTransport> {
+        if (config.kind == TransportKind.SIMULATOR) {
+            return Result.failure(IllegalArgumentException("Cannot start simulation via real transport API. Use startSimulator()."))
+        }
+        return startRealTransport(config.toRealConfig())
+    }
+
+    /** Start the Simulator transport explicitly (from Simulator button only). */
     suspend fun startSimulator(): SimulatorTransport {
         stopTransport()
         val sim = TransportFactory.createSimulator()
         _activeTransport.value = sim
         _lastError.value = null
-        sim.start()
         return sim
     }
 
@@ -72,4 +92,3 @@ class AppContainer {
         _activeTransport.value = null
     }
 }
-

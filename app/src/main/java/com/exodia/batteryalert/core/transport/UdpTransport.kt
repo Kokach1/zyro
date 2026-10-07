@@ -29,6 +29,7 @@ class UdpTransport(
 
     override val id = "udp"
     override val displayName = "UDP (port $bindPort)"
+    override val sessionSource = com.exodia.batteryalert.core.model.SessionSource.LIVE_UDP
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()

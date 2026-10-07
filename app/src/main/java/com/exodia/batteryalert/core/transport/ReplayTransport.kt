@@ -1,5 +1,6 @@
 package com.exodia.batteryalert.core.transport
 
+import com.exodia.batteryalert.core.logging.TelemetryLogger
 import com.exodia.batteryalert.core.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -9,16 +10,16 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Replay transport for scoped JSONL and timestamp-framed MAVLink .tlog files.
+ * Replay transport for versioned JSONL and timestamp-framed MAVLink .tlog files (FIX-21).
  *
- * Requirements from DAY2_SPEC / Step 07:
- *   - Detect JSONL vs .tlog by file extension / content.
+ * Requirements:
+ *   - Parse versioned JSONL matching [TelemetryLogger] schema with structured token parser.
+ *   - Fallback legacy JSON parsing for backward compatibility.
  *   - For .tlog: read 8-byte big-endian microsecond timestamp prefix, then MAVLink packet.
  *     Feed packet bytes to [MavlinkCodec].
- *   - For JSONL: parse structured domain frames line by line.
  *   - Virtual clock: respects inter-frame delays (scaled by [speedMultiplier]).
- *   - Label: always shows REPLAY [DEMO] in UI, never LIVE.
- *   - Hardware writes / pump commands are strictly suppressed in replay mode.
+ *   - Label: strictly [SessionSource.REPLAY], never LIVE.
+ *   - Hardware writes / pump commands are strictly disabled.
  */
 class ReplayTransport(
     val filePath: String,
@@ -28,7 +29,8 @@ class ReplayTransport(
 ) : TelemetryTransport {
 
     override val id = "replay"
-    override val displayName = "Replay [DEMO]"
+    override val displayName = "Replay"
+    override val sessionSource = SessionSource.REPLAY
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -39,6 +41,11 @@ class ReplayTransport(
     val codec = MavlinkCodec(MavlinkCodecConfig(targetSystemId = vehicleSystemId))
 
     private var job: Job? = null
+    var isPaused = false
+        private set
+
+    fun pause() { isPaused = true }
+    fun resume() { isPaused = false }
 
     override suspend fun start() {
         if (job?.isActive == true) return
@@ -71,6 +78,9 @@ class ReplayTransport(
                         var lastUsec = 0L
 
                         while (isActive) {
+                            while (isPaused && isActive) delay(100)
+                            if (!isActive) break
+
                             var read = 0
                             while (read < 8) {
                                 val n = input.read(timeHeader, read, 8 - read)
@@ -84,8 +94,8 @@ class ReplayTransport(
 
                             if (lastUsec > 0L && usec > lastUsec) {
                                 val deltaMs = (usec - lastUsec) / 1000L
-                                val delayMs = (deltaMs / speedMultiplier.coerceAtLeast(1)).coerceIn(10L, 2000L)
-                                delay(delayMs)
+                                val delayMs = deltaMs / speedMultiplier.coerceAtLeast(1)
+                                if (delayMs > 0) delay(delayMs)
                             }
                             lastUsec = usec
 
@@ -125,6 +135,9 @@ class ReplayTransport(
                         }
                     }
                 } while (loop && isActive)
+                if (isActive) {
+                    _connectionState.value = ConnectionState.Disconnected
+                }
             } catch (e: Exception) {
                 if (isActive) {
                     _connectionState.value = ConnectionState.Error("Replay .tlog error: ${e.message}")
@@ -138,22 +151,79 @@ class ReplayTransport(
             try {
                 do {
                     file.bufferedReader().useLines { lines ->
+                        var lastRecordTimeMs = 0L
+
                         for (line in lines) {
                             if (!isActive) break
+                            while (isPaused && isActive) delay(100)
+                            if (!isActive) break
+
                             val trimmed = line.trim()
                             if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
 
-                            val frame = parseJsonlLine(trimmed)
+                            // 1. Try TelemetryLogger schema parser first if line has schema
+                            val logRecord = if (trimmed.contains("\"schema\"")) TelemetryLogger.parseRecord(trimmed) else null
+                            if (logRecord != null) {
+                                if (lastRecordTimeMs > 0L && logRecord.utcTimeMs > lastRecordTimeMs) {
+                                    val deltaMs = (logRecord.utcTimeMs - lastRecordTimeMs)
+                                    val delayMs = deltaMs / speedMultiplier.coerceAtLeast(1)
+                                    if (delayMs > 0) delay(delayMs)
+                                }
+                                lastRecordTimeMs = logRecord.utcTimeMs
+
+                                val bFrame = BatteryFrame(
+                                    timestampMs = logRecord.utcTimeMs,
+                                    cellVoltagesV = logRecord.cellVoltagesV.map { if (it.isNaN()) 0f else it },
+                                    packVoltageV = logRecord.packVoltageV,
+                                    currentA = logRecord.currentA,
+                                    consumedMah = logRecord.consumedMah,
+                                    temperatureC = logRecord.temperatureC,
+                                    remainingPercent = logRecord.remainingPercent,
+                                    batteryId = logRecord.batteryId,
+                                    systemId = logRecord.systemId,
+                                    stale = logRecord.isStale,
+                                    isAggregateOnly = logRecord.cellVoltagesV.isEmpty(),
+                                    receivedAtMonotonicMs = System.currentTimeMillis()
+                                )
+
+                                if (_connectionState.value !is ConnectionState.Connected) {
+                                    _connectionState.value = ConnectionState.Connected
+                                }
+
+                                if (logRecord.positionLat != null && logRecord.positionLon != null) {
+                                    _frames.emit(
+                                        TelemetryFrame.Position(
+                                            PositionFrame(
+                                                timestampMs = logRecord.utcTimeMs,
+                                                latDeg = logRecord.positionLat,
+                                                lonDeg = logRecord.positionLon,
+                                                altitudeM = logRecord.positionAltM ?: 0f,
+                                                relativeAltitudeM = logRecord.positionAltM ?: 0f,
+                                                groundSpeedMps = 0f,
+                                                systemId = logRecord.systemId
+                                            )
+                                        )
+                                    )
+                                }
+                                _frames.emit(TelemetryFrame.Battery(bFrame))
+                                continue
+                            }
+
+                            // 2. Fallback parser for legacy/simple JSON lines
+                            val frame = parseLegacyJsonlLine(trimmed)
                             if (frame != null) {
                                 if (frame is TelemetryFrame.Battery && _connectionState.value !is ConnectionState.Connected) {
                                     _connectionState.value = ConnectionState.Connected
                                 }
                                 _frames.emit(frame)
-                                delay((250L / speedMultiplier.coerceAtLeast(1)).coerceAtLeast(10L))
+                                delay((250L / speedMultiplier.coerceAtLeast(1)).coerceAtLeast(1L))
                             }
                         }
                     }
                 } while (loop && isActive)
+                if (isActive) {
+                    _connectionState.value = ConnectionState.Disconnected
+                }
             } catch (e: Exception) {
                 if (isActive) {
                     _connectionState.value = ConnectionState.Error("Replay JSONL error: ${e.message}")
@@ -162,8 +232,7 @@ class ReplayTransport(
         }
     }
 
-    private fun parseJsonlLine(line: String): TelemetryFrame? {
-        // Lightweight pure-Kotlin JSON parser without external JSON dependencies in core
+    private fun parseLegacyJsonlLine(line: String): TelemetryFrame? {
         try {
             if (line.contains("\"type\":\"battery\"") || line.contains("\"cellVoltages\"") || line.contains("\"cells\"")) {
                 val nowMs = System.currentTimeMillis()

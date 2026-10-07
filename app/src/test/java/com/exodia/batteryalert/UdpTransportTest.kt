@@ -71,7 +71,7 @@ class UdpTransportTest {
         assertTrue(receivedFrame is TelemetryFrame.Battery)
         val battery = (receivedFrame as TelemetryFrame.Battery).value
         assertEquals(80, battery.remainingPercent)
-        assertEquals(35.0f, battery.currentA, 0.01f)
+        assertEquals(35.0f, battery.currentA!!, 0.01f)
 
         // Connection state should now be Connected!
         assertEquals(ConnectionState.Connected, transport.connectionState.value)

@@ -29,6 +29,7 @@ class UsbSerialTransport(
 
     override val id = "usb_serial"
     override val displayName = "USB Serial ($baudRate baud)"
+    override val sessionSource = com.exodia.batteryalert.core.model.SessionSource.LIVE_USB
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -46,8 +47,7 @@ class UsbSerialTransport(
 
         if (streamSource == null) {
             _connectionState.value = ConnectionState.Error(
-                "USB Serial: No device connected or USB permission not granted. " +
-                    "Connect USB OTG cable and grant permission. Hardware bench NOT_TESTED."
+                "USB Serial: No device connected or USB permission not granted. Connect USB OTG cable and grant permission."
             )
             return
         }

@@ -6,13 +6,14 @@ import com.exodia.batteryalert.AppContainer
 import com.exodia.batteryalert.core.alert.AlertEngine
 import com.exodia.batteryalert.core.analysis.*
 import com.exodia.batteryalert.core.config.BatteryProfiles
+import com.exodia.batteryalert.core.config.RealConnectionConfig
 import com.exodia.batteryalert.core.config.TransportConfig
-import com.exodia.batteryalert.core.config.TransportKind
 import com.exodia.batteryalert.core.model.*
 import com.exodia.batteryalert.core.telemetry.TelemetryRepository
 import com.exodia.batteryalert.core.transport.SimulatorScenario
 import com.exodia.batteryalert.core.transport.SimulatorTransport
 import com.exodia.batteryalert.core.transport.TelemetryTransport
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -28,18 +29,21 @@ class BatteryMonitorViewModel(private val container: AppContainer) : ViewModel()
     private val alertEngine = AlertEngine()
 
     private var repository: TelemetryRepository? = null
-    private var repositoryJob: kotlinx.coroutines.Job? = null
+    private var repositoryJob: Job? = null
 
     /** True when we have an active transport session (real or simulator). */
     private val _sessionActive = MutableStateFlow(false)
     val sessionActive: StateFlow<Boolean> = _sessionActive.asStateFlow()
 
-    /** True when the active session is the simulator. */
-    private val _isSimulator = MutableStateFlow(false)
-    val isSimulator: StateFlow<Boolean> = _isSimulator.asStateFlow()
+    /** Intrinsic source of active session. Derived from transport metadata. */
+    private val _sessionSource = MutableStateFlow<SessionSource?>(null)
+    val sessionSource: StateFlow<SessionSource?> = _sessionSource.asStateFlow()
+
+    val isSimulator: StateFlow<Boolean> = _sessionSource.map { it == SessionSource.SIMULATOR }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _uiState = MutableStateFlow(
-        BatteryUiState(connection = ConnectionState.Disconnected, simulatorMode = false)
+        BatteryUiState(connection = ConnectionState.Disconnected)
     )
     val uiState: StateFlow<BatteryUiState> = _uiState.asStateFlow()
 
@@ -51,11 +55,24 @@ class BatteryMonitorViewModel(private val container: AppContainer) : ViewModel()
         // Observe pre-existing active transport (e.g. rotation of activity)
         val existing = container.currentTransport
         if (existing != null) {
-            attachTransport(existing, container.activeSimulator != null)
+            attachTransport(existing)
         }
     }
 
-    /** Called from Connection/Setup UI when user presses Start with real config. */
+    /** Called from Connection/Setup UI when user presses Start with typed real config. */
+    fun startRealConnection(config: RealConnectionConfig) {
+        viewModelScope.launch {
+            _setupError.value = null
+            val result = container.startRealTransport(config)
+            if (result.isFailure) {
+                _setupError.value = result.exceptionOrNull()?.message
+                return@launch
+            }
+            attachTransport(result.getOrThrow())
+        }
+    }
+
+    /** Legacy adapter for TransportConfig. Rejects SIMULATOR defensively. */
     fun startRealTransport(config: TransportConfig) {
         viewModelScope.launch {
             _setupError.value = null
@@ -64,17 +81,17 @@ class BatteryMonitorViewModel(private val container: AppContainer) : ViewModel()
                 _setupError.value = result.exceptionOrNull()?.message
                 return@launch
             }
-            attachTransport(result.getOrThrow(), isSimulator = false)
+            attachTransport(result.getOrThrow())
         }
     }
 
-    /** Called from the explicit Simulator button. */
+    /** Called from the explicit Simulator button only. */
     fun startSimulator() {
         viewModelScope.launch {
             _setupError.value = null
             resetAnalysisState()
             val sim = container.startSimulator()
-            attachTransport(sim, isSimulator = true)
+            attachTransport(sim)
         }
     }
 
@@ -87,23 +104,25 @@ class BatteryMonitorViewModel(private val container: AppContainer) : ViewModel()
             repositoryJob = null
             container.stopTransport()
             _sessionActive.value = false
-            _isSimulator.value = false
+            _sessionSource.value = null
             resetAnalysisState()
-            _uiState.value = BatteryUiState(connection = ConnectionState.Disconnected, simulatorMode = false)
+            _uiState.value = BatteryUiState(connection = ConnectionState.Disconnected, sessionSource = null)
         }
     }
 
-    private fun attachTransport(transport: TelemetryTransport, isSimulator: Boolean) {
-        // Cancel old repository if any (different transport)
+    private fun attachTransport(transport: TelemetryTransport) {
+        // Clean up previous repository if any
         repositoryJob?.cancel()
-        repository?.let { viewModelScope.launch { it.stop() } }
+        val oldRepo = repository
+        repository = null
 
         val repo = TelemetryRepository(transport)
         repository = repo
         _sessionActive.value = true
-        _isSimulator.value = isSimulator
+        _sessionSource.value = transport.sessionSource
 
         repositoryJob = viewModelScope.launch {
+            oldRepo?.stop()
             repo.start(this)
             repo.state.sample(250).collect { map(it) }
         }
@@ -113,24 +132,24 @@ class BatteryMonitorViewModel(private val container: AppContainer) : ViewModel()
         val frame = state.battery
         if (frame != null) {
             val pack = detector.detect(frame)
-            latestAnalysis = analyzer.analyze(frame, pack, history, flightClock.onFrame(frame.timestampMs, frame.currentA))
+            latestAnalysis = analyzer.analyze(frame, pack, history, flightClock.onFrame(frame.timestampMs, frame.currentA, state.vehicleState?.isArmed))
         }
-        val distance = if (state.home != null && state.position != null)
+        val distance = if (state.home != null && state.position != null && !state.positionStale)
             GeoMath.haversineMeters(state.home.latDeg, state.home.lonDeg, state.position.latDeg, state.position.lonDeg).toFloat()
         else null
-        val rtl = latestAnalysis?.let {
-            RtlCalculator(profile).assess(distance, it.consumptionMahPerMin, it.remainingPercent, it.minutesRemaining)
-        }
+        val rtl = if (distance != null && latestAnalysis != null) {
+            RtlCalculator(profile).assess(distance, latestAnalysis?.consumptionMahPerMin, latestAnalysis?.remainingPercent ?: 0, latestAnalysis?.minutesRemaining)
+        } else null
         val alert = alertEngine.evaluate(latestAnalysis, rtl, state.connection, frame?.timestampMs ?: System.currentTimeMillis())
         _uiState.value = BatteryUiState(
             connection = state.connection,
+            sessionSource = state.sessionSource,
             analysis = latestAnalysis,
             rtl = rtl,
             alert = alert.active,
             cellFault = alert.cellFault,
             profile = profile,
             distanceM = distance,
-            simulatorMode = _isSimulator.value,
         )
     }
 
@@ -145,6 +164,7 @@ class BatteryMonitorViewModel(private val container: AppContainer) : ViewModel()
     // Simulator controls — only active when session is a SimulatorTransport
     fun scenario(s: SimulatorScenario) {
         container.activeSimulator?.setScenario(s)
+        resetAnalysisState()
     }
     fun speed(value: Int) {
         container.activeSimulator?.setSpeedMultiplier(value)
@@ -169,9 +189,6 @@ class BatteryMonitorViewModel(private val container: AppContainer) : ViewModel()
     }
 
     override fun onCleared() {
-        // Stop the repository job. Do NOT stop the container transport here —
-        // the transport belongs to the container (application-level), not the ViewModel.
-        // Stopping transport happens explicitly via stopSession() or AppContainer lifecycle.
         repositoryJob?.cancel()
         super.onCleared()
     }

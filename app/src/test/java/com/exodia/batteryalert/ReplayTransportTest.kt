@@ -53,7 +53,7 @@ class ReplayTransportTest {
         val battery = (frame as TelemetryFrame.Battery).value
         assertEquals(6, battery.cellVoltagesV.size)
         assertEquals(85, battery.remainingPercent)
-        assertEquals(25.0f, battery.currentA, 0.01f)
+        assertEquals(25.0f, battery.currentA!!, 0.01f)
         assertEquals(ConnectionState.Connected, transport.connectionState.value)
 
         transport.stop()
